@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Sign In</title>
+<link rel="icon" href="assets/logo-icon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body class="auth-body">
+
+  <div class="brand-panel">
+    <svg class="circuit" viewBox="0 0 500 800" preserveAspectRatio="none">
+      <g stroke="#1f6b3a" stroke-width="1" fill="none">
+        <path d="M0 120 H140 V220 H320 V90 H500"/>
+        <path d="M0 340 H90 V420 H260 V520 H500"/>
+        <path d="M0 620 H180 V700 H420 V780 H500"/>
+      </g>
+      <g fill="#34d399">
+        <circle cx="140" cy="120" r="4"/><circle cx="320" cy="220" r="4"/>
+        <circle cx="90" cy="340" r="4"/><circle cx="260" cy="520" r="4"/>
+        <circle cx="180" cy="620" r="4"/><circle cx="420" cy="780" r="4"/>
+      </g>
+    </svg>
+
+    <div class="brand-top">
+      <div class="brand-logo"><img src="assets/logo-full.png" alt="MABUMBATECH logo"></div>
+      <div class="brand-lockup">
+        <p class="name">MABUMBATECH</p>
+        <p class="tagline">Technology. Innovation. Solutions.</p>
+      </div>
+    </div>
+
+    <div class="brand-mid">
+      <h2>One platform to run sales, stock, services and finance — built for growing businesses.</h2>
+      <ul class="value-list">
+        <li><span class="dot"></span> Real-time revenue, profit and stock value at a glance</li>
+        <li><span class="dot"></span> Sales, services, expenses and inventory in one place</li>
+        <li><span class="dot"></span> Role-based access with a full activity trail</li>
+      </ul>
+    </div>
+
+    <div class="brand-bottom">
+      <div class="contact">Mbeya Iyunga, Ikuti&nbsp;&nbsp;·&nbsp;&nbsp;+255 620 839 640<br>mabumbatech@gmail.com</div>
+    </div>
+  </div>
+
+  <div class="form-panel">
+    <div class="form-wrap">
+      <a href="index.html" class="back-home-link">
+        <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><path d="M10 3 5 8l5 5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        Back to website
+      </a>
+      <div class="form-badge-wide"><img src="assets/logo-emerald.png" alt="MABUMBATECH"></div>
+      <p class="eyebrow">Business Manager</p>
+      <h1>Sign in</h1>
+      <p class="sub">Enter your workspace credentials to continue.</p>
+
+      <div class="field-error" id="login-error"></div>
+
+      <form id="login-form" autocomplete="off">
+        <div class="field">
+          <label for="username">Username</label>
+          <input id="username" name="username" type="text" placeholder="e.g. j.mabumba" autocomplete="username" required>
+        </div>
+        <div class="field" style="position:relative;">
+          <label for="password">Password</label>
+          <input id="password" name="password" type="password" placeholder="••••••••" autocomplete="current-password" required>
+          <button type="button" id="toggle-pw" style="position:absolute; right:12px; top:38px; background:none; border:none; color:var(--slate-muted); font-size:12.5px; font-weight:600; cursor:pointer;">Show</button>
+        </div>
+
+        <div class="row-between">
+          <label class="remember"><input type="checkbox" id="remember"> Keep me signed in</label>
+          <a href="forgot-password.html">Forgot password?</a>
+        </div>
+
+        <button class="btn btn-primary" type="submit" id="login-submit" style="width:100%; justify-content:center; padding:13px 16px;">
+          <span id="login-submit-label">Sign in</span>
+          <svg width="16" height="16" viewBox="0 0 16 16" fill="none"><path d="M3 8h10M9 4l4 4-4 4" stroke="white" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </form>
+
+      <p class="form-footer"><span class="copy">© 2026 MABUMBATECH</span><span class="tag">Technology. Innovation. Solutions.</span></p>
+    </div>
+  </div>
+
+<script>window.FRONTEND_BASE = ""; window.API_BASE = "../Backend";</script>
+<script src="js/api.js"></script>
+<script>
+  document.getElementById('toggle-pw').addEventListener('click', () => {
+    const p = document.getElementById('password');
+    const btn = document.getElementById('toggle-pw');
+    p.type = p.type === 'password' ? 'text' : 'password';
+    btn.textContent = p.type === 'password' ? 'Show' : 'Hide';
+  });
+
+  // Already logged in? Skip straight to the dashboard.
+  api.get('auth/session_check.php').then(() => { window.location.href = 'dashboard.html'; }).catch(() => {});
+
+  const form = document.getElementById('login-form');
+  const errorBox = document.getElementById('login-error');
+  const submitBtn = document.getElementById('login-submit');
+  const submitLabel = document.getElementById('login-submit-label');
+
+  form.addEventListener('submit', async (e) => {
+    e.preventDefault();
+    errorBox.classList.remove('show');
+    submitBtn.disabled = true;
+    submitLabel.textContent = 'Signing in…';
+
+    try {
+      await api.post('auth/login.php', {
+        username: document.getElementById('username').value.trim(),
+        password: document.getElementById('password').value,
+      });
+      window.location.href = 'dashboard.html';
+    } catch (err) {
+      errorBox.textContent = err.message;
+      errorBox.classList.add('show');
+      submitBtn.disabled = false;
+      submitLabel.textContent = 'Sign in';
+    }
+  });
+</script>
+</body>
+</html>

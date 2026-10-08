@@ -1,0 +1,371 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Cash Audit</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .ca-tabs{ display:flex; gap:6px; background:#eef7f0; border-radius:9px; padding:4px; margin-bottom:18px; max-width:560px; }
+  .ca-tabs button{ flex:1; border:none; background:none; padding:9px 10px; border-radius:7px; font-size:13px; font-weight:600; color:var(--slate-muted); cursor:pointer; }
+  .ca-tabs button.active{ background:var(--white); color:var(--blue); box-shadow:var(--shadow-sm); }
+  .ca-tab{ display:none; }
+  .ca-tab.active{ display:block; }
+  .ca-section-title{ font-size:14px; font-weight:700; margin:0 0 12px; display:flex; align-items:center; gap:8px; }
+  .ca-section-title .bar{ width:4px; height:16px; background:var(--blue); border-radius:2px; display:inline-block; }
+  .denom-table input[type=number]{ width:90px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .denom-table input[type=text]{ width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:12.5px; }
+  .partb-row{ display:flex; justify-content:space-between; padding:8px 4px; font-size:13.5px; border-bottom:1px solid #f2effa; }
+  .partb-row.total{ font-weight:700; border-top:1.5px solid var(--border); border-bottom:none; margin-top:4px; padding-top:12px; }
+  .partb-row .sub{ padding-left:16px; color:var(--slate-muted); font-size:12.5px; }
+  .float-quick{ display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+  .float-quick .field{ margin-bottom:0; }
+  .variance-pill{ display:inline-flex; padding:4px 12px; border-radius:20px; font-size:12.5px; font-weight:700; }
+  .variance-pill.ok{ background:var(--success-pale); color:var(--success); }
+  .variance-pill.short{ background:var(--danger-pale); color:var(--danger); }
+  .variance-pill.over{ background:var(--warn-pale); color:#a97418; }
+  .totals-box{ background:#f6fbf7; border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-top:14px; }
+  .totals-row{ display:flex; justify-content:space-between; font-size:13px; padding:4px 0; color:var(--slate-muted); }
+  .totals-row.grand{ font-size:16px; font-weight:700; color:var(--slate); border-top:1px solid var(--border); margin-top:6px; padding-top:10px; }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'sales';
+const DENOMS = [10000, 5000, 2000, 1000, 500, 200, 100, 50];
+let CURRENT_USER = null;
+let latestSummary = null;
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div>
+        <h2>Cash Audit</h2>
+        <p>Daily cash closing &amp; sales reconciliation.</p>
+      </div>
+      <a class="btn btn-secondary" href="sales.html">&larr; Back to Sales</a>
+    </div>
+
+    <div class="ca-tabs">
+      <button class="active" data-tab="new">New Audit</button>
+      <button data-tab="float">Opening Float</button>
+      <button data-tab="history">Audit History</button>
+    </div>
+
+    <div class="ca-tab active" id="tab-new">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="field-row">
+          <div class="field"><label>Date</label><input type="date" id="audit-date"></div>
+          <div class="field"><label>Shift (optional)</label><input type="text" id="audit-shift" placeholder="e.g. Morning"></div>
+        </div>
+        <div class="field-row">
+          <div class="field"><label>Cashier</label><input type="text" id="audit-cashier"></div>
+          <div class="field"><label>Prepared By</label><input type="text" id="audit-prepared"></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="ca-section-title"><span class="bar"></span> A. Cash Count</div>
+        <div class="table-wrap denom-table">
+          <table>
+            <thead><tr><th>Denomination (TZS)</th><th>Quantity</th><th>Amount (TZS)</th><th>Remarks</th></tr></thead>
+            <tbody id="denom-body"></tbody>
+          </table>
+        </div>
+        <div class="totals-box">
+          <div class="totals-row grand"><span>Total Cash Counted</span><span id="total-counted">0 TZS</span></div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="ca-section-title" style="justify-content:space-between;">
+          <span><span class="bar"></span> B. Sales Reconciliation</span>
+          <button class="btn btn-secondary btn-sm" id="refresh-summary-btn">Refresh</button>
+        </div>
+        <p style="font-size:12px; color:var(--slate-muted); margin:-6px 0 12px;">Filled in automatically from that date's recorded sales, expenses and opening float — nothing here is typed by hand.</p>
+        <div id="partb-body"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="field"><label>Remarks (optional)</label><textarea id="audit-remarks" rows="2"></textarea></div>
+        <div class="field"><label>Approved By (optional)</label><input type="text" id="audit-approved" placeholder="Name of approver, if any"></div>
+      </div>
+
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-primary" id="save-audit-btn">Save Cash Audit</button>
+        <button class="btn btn-secondary" id="download-audit-btn" style="display:none;">Download PDF</button>
+      </div>
+    </div>
+
+    <div class="ca-tab" id="tab-float">
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="ca-section-title"><span class="bar"></span> Opening Float — One Click</div>
+        <p style="font-size:12px; color:var(--slate-muted); margin:-6px 0 14px;">Pick the date, then set how much cash you opened the office with — or add/reduce it later the same day if anything changes.</p>
+        <div class="float-quick">
+          <div class="field"><label>Date</label><input type="date" id="float-date"></div>
+          <div class="field"><label>Type</label>
+            <select id="float-type">
+              <option value="opening">Opening float</option>
+              <option value="add">Add to float</option>
+              <option value="reduce">Reduce float</option>
+            </select>
+          </div>
+          <div class="field"><label>Amount (TZS)</label><input type="number" id="float-amount" min="0" step="1"></div>
+          <div class="field" style="flex:1; min-width:160px;"><label>Note (optional)</label><input type="text" id="float-note" placeholder="e.g. bought stationery"></div>
+          <button class="btn btn-primary" id="float-save-btn" style="height:38px;">Save</button>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:16px;">
+        <div class="panel-head"><h3>Float for <span id="float-date-label">—</span></h3><div style="font-size:18px; font-weight:700;" id="float-date-total">0 TZS</div></div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Type</th><th>Amount</th><th>Note</th><th>By</th><th>Time</th></tr></thead>
+          <tbody id="float-entries-body"><tr><td colspan="5" class="empty-state">No entries for this date yet.</td></tr></tbody>
+        </table></div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Opening Float History</h3></div>
+        <div class="toolbar">
+          <div class="field" style="margin:0;"><input type="date" id="float-hist-start" class="filter-select"></div>
+          <div class="field" style="margin:0;"><input type="date" id="float-hist-end" class="filter-select"></div>
+          <button class="btn btn-secondary btn-sm" id="float-hist-filter-btn">Filter</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Type</th><th>Amount</th><th>Note</th><th>By</th></tr></thead>
+          <tbody id="float-history-body"><tr><td colspan="5" class="loading-row"><span class="spinner"></span></td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+
+    <div class="ca-tab" id="tab-history">
+      <div class="panel">
+        <div class="toolbar">
+          <div class="field" style="margin:0;"><input type="date" id="audit-hist-start" class="filter-select"></div>
+          <div class="field" style="margin:0;"><input type="date" id="audit-hist-end" class="filter-select"></div>
+          <button class="btn btn-secondary btn-sm" id="audit-hist-filter-btn">Filter</button>
+        </div>
+        <div class="table-wrap"><table>
+          <thead><tr><th>Date</th><th>Cashier</th><th>Counted</th><th>Expected</th><th>Variance</th><th>Prepared By</th><th>Actions</th></tr></thead>
+          <tbody id="audit-history-body"><tr><td colspan="7" class="loading-row"><span class="spinner"></span></td></tr></tbody>
+        </table></div>
+      </div>
+    </div>
+  `;
+}
+
+function tzs(n) { return money(n) + ' TZS'; }
+function todayStr() { return new Date().toISOString().slice(0, 10); }
+
+function switchTab(name) {
+  document.querySelectorAll('.ca-tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === name));
+  document.querySelectorAll('.ca-tab').forEach(t => t.classList.toggle('active', t.id === `tab-${name}`));
+}
+
+// ---------- Part A: denomination table ----------
+function renderDenomRows() {
+  const body = document.getElementById('denom-body');
+  body.innerHTML = DENOMS.map(d => `
+    <tr data-denom="${d}">
+      <td class="pname">${tzs(d).replace(' TZS', '')}</td>
+      <td><input type="number" class="qty-input" min="0" step="1" value="0"></td>
+      <td class="amt">0</td>
+      <td><input type="text" class="remark-input" placeholder="—"></td>
+    </tr>
+  `).join('');
+  body.querySelectorAll('.qty-input').forEach(inp => inp.addEventListener('input', recalcDenomTotal));
+  recalcDenomTotal();
+}
+function recalcDenomTotal() {
+  let total = 0;
+  document.querySelectorAll('#denom-body tr').forEach(row => {
+    const d = Number(row.dataset.denom);
+    const qty = Number(row.querySelector('.qty-input').value) || 0;
+    const amt = qty * d;
+    row.querySelector('.amt').textContent = amt.toLocaleString('en-US');
+    total += amt;
+  });
+  document.getElementById('total-counted').textContent = tzs(total);
+}
+function collectDenominations() {
+  const out = {};
+  document.querySelectorAll('#denom-body tr').forEach(row => {
+    out[row.dataset.denom] = { qty: Number(row.querySelector('.qty-input').value) || 0 };
+  });
+  return out;
+}
+function totalCounted() {
+  return DENOMS.reduce((sum, d) => {
+    const row = document.querySelector(`#denom-body tr[data-denom="${d}"]`);
+    return sum + (Number(row.querySelector('.qty-input').value) || 0) * d;
+  }, 0);
+}
+
+// ---------- Part B: auto summary ----------
+async function loadSummary() {
+  const date = document.getElementById('audit-date').value || todayStr();
+  const body = document.getElementById('partb-body');
+  body.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  try {
+    const s = await api.get('api/cash_audits.php', { action: 'summary', date });
+    latestSummary = s;
+    const rows = [
+      ['Opening Cash (Physical Float)', s.opening_float, false],
+      ['Cash Physical Sales', s.cash_physical_sales, false],
+    ];
+    (s.electronic_sales || []).forEach(e => rows.push([e.method, e.amount, true]));
+    if (!s.electronic_sales || !s.electronic_sales.length) rows.push(['Electronic Sales (Mixx by Yas / M-Pesa / Bank)', 0, true]);
+    rows.push(['On Credit Sales', s.credit_sales, false]);
+    rows.push(['Total Sales (Cash Physical + Electronic + On Credit)', s.total_sales, 'total']);
+    rows.push(['Expenses', s.expenses_total, false]);
+    rows.push(['Expected Cash ((Opening Float + Total Sales) - Expenses)', s.expected_cash, 'total']);
+    body.innerHTML = rows.map(([label, amt, kind]) => `
+      <div class="partb-row ${kind === 'total' ? 'total' : ''}"><span class="${kind === true ? 'sub' : ''}">${label}</span><span>${tzs(amt)}</span></div>
+    `).join('');
+  } catch (e) {
+    body.innerHTML = `<div class="empty-state">${e.message}</div>`;
+  }
+}
+
+async function saveAudit() {
+  const date = document.getElementById('audit-date').value;
+  const cashier = document.getElementById('audit-cashier').value.trim();
+  const prepared = document.getElementById('audit-prepared').value.trim();
+  if (!date || !cashier || !prepared) { toast('Date, cashier and prepared-by name are required.', 'error'); return; }
+  const btn = document.getElementById('save-audit-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const result = await api.post('api/cash_audits.php', {
+      audit_date: date,
+      shift: document.getElementById('audit-shift').value.trim(),
+      cashier_name: cashier,
+      denominations: collectDenominations(),
+      remarks: document.getElementById('audit-remarks').value.trim(),
+      prepared_by_name: prepared,
+      approved_by_name: document.getElementById('audit-approved').value.trim(),
+    });
+    toast('Cash audit saved.', 'success');
+    const dl = document.getElementById('download-audit-btn');
+    dl.style.display = 'inline-flex';
+    dl.onclick = () => window.open(`../../Backend/api/cash_audit_pdf.php?id=${result.id}`, '_blank');
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false; btn.textContent = 'Save Cash Audit';
+  }
+}
+
+// ---------- Opening Float tab ----------
+async function loadFloatForDate() {
+  const date = document.getElementById('float-date').value || todayStr();
+  document.getElementById('float-date-label').textContent = date;
+  const body = document.getElementById('float-entries-body');
+  body.innerHTML = `<tr><td colspan="5" class="loading-row"><span class="spinner"></span></td></tr>`;
+  try {
+    const r = await api.get('api/cash_float.php', { date });
+    document.getElementById('float-date-total').textContent = tzs(r.total);
+    body.innerHTML = r.entries.length ? r.entries.map(e => `
+      <tr><td>${e.type}</td><td>${tzs(e.amount)}</td><td>${e.note || '—'}</td><td>${e.created_by_name}</td><td>${new Date(e.created_at).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })}</td></tr>
+    `).join('') : `<tr><td colspan="5" class="empty-state">No entries for this date yet.</td></tr>`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">${e.message}</td></tr>`;
+  }
+}
+
+async function saveFloatEntry() {
+  const entry_date = document.getElementById('float-date').value || todayStr();
+  const type = document.getElementById('float-type').value;
+  const amount = Number(document.getElementById('float-amount').value);
+  const note = document.getElementById('float-note').value.trim();
+  if (!amount || amount <= 0) { toast('Enter an amount greater than zero.', 'error'); return; }
+  const btn = document.getElementById('float-save-btn');
+  btn.disabled = true;
+  try {
+    await api.post('api/cash_float.php', { entry_date, type, amount, note });
+    toast('Saved.', 'success');
+    document.getElementById('float-amount').value = '';
+    document.getElementById('float-note').value = '';
+    loadFloatForDate();
+    loadFloatHistory();
+  } catch (e) {
+    toast(e.message, 'error');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
+async function loadFloatHistory() {
+  const body = document.getElementById('float-history-body');
+  body.innerHTML = `<tr><td colspan="5" class="loading-row"><span class="spinner"></span></td></tr>`;
+  try {
+    const start = document.getElementById('float-hist-start').value;
+    const end = document.getElementById('float-hist-end').value;
+    const rows = await api.get('api/cash_float.php', { start, end });
+    body.innerHTML = rows.length ? rows.map(e => `
+      <tr><td>${e.entry_date}</td><td>${e.type}</td><td>${tzs(e.amount)}</td><td>${e.note || '—'}</td><td>${e.created_by_name}</td></tr>
+    `).join('') : `<tr><td colspan="5" class="empty-state">No float entries in this range.</td></tr>`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="5" class="empty-state">${e.message}</td></tr>`;
+  }
+}
+
+// ---------- Audit history tab ----------
+async function loadAuditHistory() {
+  const body = document.getElementById('audit-history-body');
+  body.innerHTML = `<tr><td colspan="7" class="loading-row"><span class="spinner"></span></td></tr>`;
+  try {
+    const start = document.getElementById('audit-hist-start').value;
+    const end = document.getElementById('audit-hist-end').value;
+    const rows = await api.get('api/cash_audits.php', { start, end });
+    body.innerHTML = rows.length ? rows.map(r => {
+      const cls = r.variance == 0 ? 'ok' : (r.variance < 0 ? 'short' : 'over');
+      const label = r.variance == 0 ? 'Balanced' : (r.variance < 0 ? 'Short ' + tzs(Math.abs(r.variance)) : 'Over ' + tzs(r.variance));
+      return `<tr>
+        <td>${r.audit_date}</td><td>${r.cashier_name}</td><td>${tzs(r.total_cash_counted)}</td><td>${tzs(r.expected_cash)}</td>
+        <td><span class="variance-pill ${cls}">${label}</span></td><td>${r.prepared_by_name}</td>
+        <td><button class="btn-icon" title="Download PDF" onclick="window.open('../../Backend/api/cash_audit_pdf.php?id=${r.id}','_blank')"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3v10m0 0-3.5-3.5M10 13l3.5-3.5M4 16h12"/></svg></button></td>
+      </tr>`;
+    }).join('') : `<tr><td colspan="7" class="empty-state">No saved cash audits in this range.</td></tr>`;
+  } catch (e) {
+    body.innerHTML = `<tr><td colspan="7" class="empty-state">${e.message}</td></tr>`;
+  }
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Cash Audit');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  document.querySelectorAll('.ca-tabs button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+  document.getElementById('audit-date').value = todayStr();
+  document.getElementById('audit-cashier').value = user.full_name;
+  document.getElementById('audit-prepared').value = user.full_name;
+  document.getElementById('float-date').value = todayStr();
+
+  renderDenomRows();
+  document.getElementById('audit-date').addEventListener('change', loadSummary);
+  document.getElementById('refresh-summary-btn').addEventListener('click', loadSummary);
+  document.getElementById('save-audit-btn').addEventListener('click', saveAudit);
+  loadSummary();
+
+  document.getElementById('float-date').addEventListener('change', loadFloatForDate);
+  document.getElementById('float-save-btn').addEventListener('click', saveFloatEntry);
+  loadFloatForDate();
+
+  document.getElementById('float-hist-filter-btn').addEventListener('click', loadFloatHistory);
+  loadFloatHistory();
+
+  document.getElementById('audit-hist-filter-btn').addEventListener('click', loadAuditHistory);
+  loadAuditHistory();
+});
+</script>
+</body>
+</html>

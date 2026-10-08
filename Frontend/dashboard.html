@@ -1,0 +1,246 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Dashboard</title>
+<link rel="icon" href="assets/logo-icon.png">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = ""; window.API_BASE = "../Backend";</script>
+<script src="js/api.js"></script>
+<script src="js/shell.js"></script>
+<script src="js/purchase-order.js"></script>
+<script>
+window.CURRENT_PAGE = 'dashboard';
+
+let currentPeriod = 'today';
+let CURRENT_USER = null;
+// Only the administrator (the office) sees profit and buying values.
+// Workers get sales, expenses and stock info only.
+function canSeeCosts() { return CURRENT_USER && CURRENT_USER.role === 'administrator'; }
+
+function periodButtons() {
+  const periods = [['today','Today'],['week','This week'],['month','This month'],['year','This year']];
+  return `<div class="range-select" id="range-select">
+    ${periods.map(([key,label]) => `<button data-period="${key}" class="${key===currentPeriod?'active':''}">${label}</button>`).join('')}
+  </div>`;
+}
+
+function renderContent(d) {
+  const content = document.getElementById('page-content');
+  const showCosts = canSeeCosts();
+  const heroLabel = showCosts
+    ? { today: "Net profit today", week: "Net profit this week", month: "Net profit this month", year: "Net profit this year" }[currentPeriod]
+    : { today: "Total sales today", week: "Total sales this week", month: "Total sales this month", year: "Total sales this year" }[currentPeriod];
+  const heroAmount = showCosts ? d.summary.net_profit : d.summary.total_sales;
+
+  content.innerHTML = `
+    <div class="hero-row">
+      <div class="hero-card">
+        <div class="label">${heroLabel}</div>
+        <div class="amount">${money(heroAmount)} <span>TZS</span></div>
+        <div class="delta">${d.summary.transactions} transaction${d.summary.transactions === 1 ? '' : 's'} in this period</div>
+      </div>
+      <div class="stat-card">
+        <div class="top-row">
+          <div class="label">Total revenue</div>
+          <div class="icon-badge" style="background:var(--blue-pale);">
+            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="var(--blue)" stroke-width="1.7"><path d="M3 6h14l-1.4 8.4a2 2 0 0 1-2 1.6H6.4a2 2 0 0 1-2-1.6L3 6Z"/></svg>
+          </div>
+        </div>
+        <div class="amount">${money(d.summary.total_sales)}</div>
+        <div class="sub">Products ${money(d.summary.product_revenue)} · Services ${money(d.summary.service_revenue)}</div>
+      </div>
+      <div class="stat-card">
+        <div class="top-row">
+          <div class="label">Total expenses</div>
+          <div class="icon-badge" style="background:var(--warn-pale);">
+            <svg width="17" height="17" viewBox="0 0 20 20" fill="none" stroke="#a97418" stroke-width="1.7"><path d="M3 15V9M8 15V5M13 15v-7M17 15V11"/></svg>
+          </div>
+        </div>
+        <div class="amount">${money(d.summary.total_expenses)}</div>
+        ${showCosts ? `<div class="sub">Loss/damage: TZS ${money(d.summary.total_damage_loss)}</div>` : ''}
+      </div>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric-mini success">
+        <div class="label">Stock value (selling)</div>
+        <div class="amount">${money(d.stock.selling_value)} TZS</div>
+      </div>
+      ${showCosts ? `<div class="metric-mini">
+        <div class="label">Stock value (buying)</div>
+        <div class="amount">${money(d.stock.buying_value)} TZS</div>
+      </div>` : ''}
+      <div class="metric-mini warn">
+        <div class="label">Low stock items</div>
+        <div class="amount">${d.low_stock_alerts.length} product${d.low_stock_alerts.length === 1 ? '' : 's'}</div>
+      </div>
+      <div class="metric-mini danger">
+        <div class="label">Outstanding debts</div>
+        <div class="amount">${money(d.summary.outstanding_debts)} TZS</div>
+      </div>
+      <div class="metric-mini warn">
+        <div class="label">Total debts</div>
+        <div class="amount">${money(d.summary.total_debts)} TZS</div>
+      </div>
+    </div>
+
+    <div class="panels-row">
+      <div class="panel">
+        <div class="panel-head">
+          <h3>Business overview</h3>
+        </div>
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:16px;">
+          <div>
+            <div class="psub" style="margin-bottom:6px;">This month so far</div>
+            <div style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700;">${money(d.month.total_sales)} TZS</div>
+            <div class="psub">Total sales</div>
+          </div>
+          <div>
+            <div class="psub" style="margin-bottom:6px;">This month so far</div>
+            ${showCosts ? `
+            <div style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700; color:${d.month.net_profit >= 0 ? 'var(--success)' : 'var(--danger)'};">${money(d.month.net_profit)} TZS</div>
+            <div class="psub">Net profit</div>` : `
+            <div style="font-family:'Space Grotesk',sans-serif; font-size:20px; font-weight:700;">${money(d.month.total_expenses)} TZS</div>
+            <div class="psub">Total expenses</div>`}
+          </div>
+        </div>
+        ${showCosts ? `
+        <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
+        <div class="psub" style="margin-bottom:10px;">Expected gross profit if all current stock sells</div>
+        <div style="font-family:'Space Grotesk',sans-serif; font-size:22px; font-weight:700; color:var(--success);">${money(d.stock.expected_gross_profit)} TZS</div>` : ''}
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Alerts</h3>${d.low_stock_alerts.length ? `<button class="btn btn-secondary btn-sm" onclick="openPurchaseOrderModal()" title="Choose what to buy and download a Purchase Order PDF">
+            <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 3v10m0 0-4-4m4 4 4-4M4 16h12"/></svg>
+            Purchase Order</button>` : ''}</div>
+        <div class="alert-list" style="display:flex; flex-direction:column; gap:10px; max-height:280px; overflow-y:auto;">
+          ${renderAlerts(d)}
+        </div>
+      </div>
+    </div>
+
+    <div class="table-row-section">
+      <div class="panel">
+        <div class="panel-head"><h3>Top selling this period</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Item</th><th>Qty</th><th>Revenue</th></tr></thead>
+            <tbody>
+              ${d.top_selling.length ? d.top_selling.map(row => `
+                <tr>
+                  <td><div class="pname">${escapeHtml(row.name)}</div><div class="psub">${row.item_type === 'product' ? 'Product' : (row.item_type === 'service' ? 'Service' : 'Custom service')}</div></td>
+                  <td>${row.qty_sold}</td>
+                  <td>${money(row.revenue)}</td>
+                </tr>`).join('') : `<tr><td colspan="3" style="text-align:center; color:var(--slate-muted); padding:24px;">No sales in this period yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-head"><h3>Recent sales</h3></div>
+        <div class="table-wrap" id="recent-sales-wrap">
+          <div class="loading-row"><span class="spinner"></span> Loading…</div>
+        </div>
+      </div>
+    </div>
+  `;
+
+  document.getElementById('range-select').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-period]');
+    if (!btn) return;
+    currentPeriod = btn.dataset.period;
+    loadDashboard();
+  });
+
+  loadRecentSales();
+}
+
+function renderAlerts(d) {
+  const rows = [];
+  d.debt_alerts.overdue.forEach(a => rows.push(`
+    <div class="alert-item" style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fbfbfd; border:1px solid var(--border);">
+      <span style="width:8px; height:8px; border-radius:50%; background:var(--danger); flex:none;"></span>
+      <div style="flex:1; min-width:0;"><div style="font-size:12.5px; font-weight:600;">Overdue debt — ${escapeHtml(a.customer_name || 'Customer')}</div><div style="font-size:11.5px; color:var(--slate-muted);">Was due ${fmtDate(a.deadline)}</div></div>
+      <div style="font-size:12.5px; font-weight:700;">${money(a.remaining)}</div>
+    </div>`));
+  d.debt_alerts.due_today.forEach(a => rows.push(`
+    <div class="alert-item" style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fbfbfd; border:1px solid var(--border);">
+      <span style="width:8px; height:8px; border-radius:50%; background:var(--warn); flex:none;"></span>
+      <div style="flex:1; min-width:0;"><div style="font-size:12.5px; font-weight:600;">Debt due today — ${escapeHtml(a.customer_name || 'Customer')}</div></div>
+      <div style="font-size:12.5px; font-weight:700;">${money(a.remaining)}</div>
+    </div>`));
+  d.low_stock_alerts.forEach(p => rows.push(`
+    <div class="alert-item" style="display:flex; align-items:center; gap:11px; padding:10px 12px; border-radius:10px; background:#fbfbfd; border:1px solid var(--border);">
+      <span style="width:8px; height:8px; border-radius:50%; background:var(--blue); flex:none;"></span>
+      <div style="flex:1; min-width:0;"><div style="font-size:12.5px; font-weight:600;">${escapeHtml(p.name)} — low stock</div><div style="font-size:11.5px; color:var(--slate-muted);">${p.stock_quantity} ${escapeHtml(p.unit)} left · reorder at ${p.reorder_level}</div></div>
+    </div>`));
+  if (!rows.length) return `<div style="text-align:center; color:var(--slate-muted); padding:24px; font-size:13px;">No alerts right now — everything looks good.</div>`;
+  return rows.join('');
+}
+
+async function loadRecentSales() {
+  const wrap = document.getElementById('recent-sales-wrap');
+  try {
+    const sales = await api.get('api/sales.php', { limit: 5 });
+    if (!sales.length) {
+      wrap.innerHTML = `<div style="text-align:center; color:var(--slate-muted); padding:24px; font-size:13px;">No sales recorded yet.</div>`;
+      return;
+    }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Customer</th><th>Amount</th><th>Method</th></tr></thead>
+        <tbody>
+          ${sales.map(s => `
+            <tr>
+              <td><div class="pname">${escapeHtml(s.customer_name || 'Walk-in')}</div><div class="psub">${s.invoice_no} · ${s.item_count} item(s)</div></td>
+              <td>${money(s.total_amount)}</td>
+              <td><span class="badge ${s.payment_type === 'credit' ? 'credit' : 'cash'}">${s.payment_type === 'credit' ? 'Credit' : (s.payment_method_name || 'Cash')}</span></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div style="text-align:center; color:var(--danger); padding:24px; font-size:13px;">Could not load recent sales.</div>`;
+  }
+}
+
+async function loadDashboard() {
+  const content = document.getElementById('page-content');
+  content.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading dashboard…</div>`;
+  try {
+    const d = await api.get('api/dashboard.php', { period: currentPeriod });
+    renderContent(d);
+  } catch (e) {
+    content.innerHTML = `<div class="empty-state"><div class="t">Could not load the dashboard</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+initShell().then(user => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Overview');
+  // Inject the period switch into the topbar, next to the user chip.
+  const topRight = document.querySelector('.topbar-right');
+  const rangeWrap = document.createElement('div');
+  rangeWrap.className = 'hide-mobile';
+  rangeWrap.innerHTML = periodButtons();
+  topRight.insertBefore(rangeWrap, topRight.firstChild);
+  document.getElementById('range-select').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-period]');
+    if (!btn) return;
+    currentPeriod = btn.dataset.period;
+    document.querySelectorAll('#range-select button').forEach(b => b.classList.toggle('active', b === btn));
+    loadDashboard();
+  });
+  loadDashboard();
+});
+</script>
+</body>
+</html>

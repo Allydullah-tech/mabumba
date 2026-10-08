@@ -1,0 +1,344 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Purchases</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'purchases';
+let CURRENT_USER = null;
+let SUPPLIERS = [];
+let importedRows = [];
+
+function pageContentHtml(canManage) {
+  return `
+    <div class="page-header">
+      <div><h2>Purchases</h2><p>Full history of every stock delivery received — see the Stock page to receive new stock one item at a time, or import a supplier's list below.</p></div>
+      <div style="display:flex; gap:10px;">
+        ${canManage ? `
+        <button class="btn btn-primary" id="import-excel-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="1.6"><path d="M10 3v9m0 0-3.5-3.5M10 12l3.5-3.5"/><path d="M4 14v2a1 1 0 0 0 1 1h10a1 1 0 0 0 1-1v-2"/></svg>
+          Import Excel
+        </button>` : ''}
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+      </div>
+    </div>
+
+    <div class="hero-row" style="grid-template-columns:1fr 1fr;">
+      <div class="hero-card"><div class="label">Total spent this period</div><div class="amount" id="stat-total">—</div><div class="delta" id="stat-count">—</div></div>
+      <div class="stat-card"><div class="top-row"><div class="label">New types vs. restocks</div></div><div class="amount" id="stat-split" style="font-size:16px;">—</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search by product, type, supplier…">
+        </div>
+        <select class="filter-select" id="filter-source">
+          <option value="">All sources</option>
+          <option value="manual">Manual</option>
+          <option value="import">Import</option>
+        </select>
+        <input type="date" class="filter-select" id="filter-start">
+        <input type="date" class="filter-select" id="filter-end">
+        <button class="btn btn-secondary btn-sm" id="filter-clear">Clear</button>
+      </div>
+      <div class="table-wrap" id="purchases-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadSuppliers() {
+  SUPPLIERS = await api.get('api/suppliers.php', { status: 'active' });
+}
+
+function currentFilters() {
+  const f = {};
+  const source = document.getElementById('filter-source').value;
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (source) f.source = source;
+  if (start) f.start = start;
+  if (end) f.end = end;
+  return f;
+}
+
+async function loadPurchases() {
+  const wrap = document.getElementById('purchases-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  try {
+    let rows = await api.get('api/purchases.php', { ...currentFilters(), limit: 500 });
+    const q = document.getElementById('search-input').value.trim().toLowerCase();
+    if (q) rows = rows.filter(r => r.display_name.toLowerCase().includes(q) || (r.supplier_name || '').toLowerCase().includes(q));
+
+    const total = rows.reduce((s, r) => s + Number(r.total_cost), 0);
+    document.getElementById('stat-total').innerHTML = `${money(total)} <span>TZS</span>`;
+    document.getElementById('stat-count').textContent = `${rows.length} deliver${rows.length === 1 ? 'y' : 'ies'}`;
+    document.getElementById('stat-split').textContent = `${rows.filter(r => r.source === 'manual').length} manual · ${rows.filter(r => r.source === 'import').length} imported`;
+
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No purchases found</div><p>Try a different filter, or receive stock from the Stock page.</p></div>`; return; }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Date</th><th>Product / Type</th><th>Supplier</th><th>Qty</th><th>Unit Cost</th><th>Total Cost</th><th>Source</th><th>By</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+              <td class="psub">${fmtDate(r.purchase_date)}</td>
+              <td class="pname">${escapeHtml(r.display_name)}</td>
+              <td class="psub">${escapeHtml(r.supplier_name || '—')}</td>
+              <td>${r.quantity} ${escapeHtml(r.unit)}</td>
+              <td>${money(r.buying_price)}</td>
+              <td class="pname">${money(r.total_cost)}</td>
+              <td><span class="badge ${r.source === 'manual' ? 'blue' : 'neutral'}">${r.source}</span></td>
+              <td class="psub">${escapeHtml(r.recorded_by_name)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load purchases</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function exportAs(format) {
+  const qs = new URLSearchParams({ type: 'purchases', format, ...currentFilters() }).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+
+/* ---------------------------- Excel/CSV import ---------------------------- */
+
+function importModalHtml() {
+  const supOptions = SUPPLIERS.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+  return `
+    <p class="hint" style="margin-top:0;">Upload a supplier delivery list as Excel (.xlsx) or CSV. Expected columns: <b>Product Name</b>, <b>Type</b> (optional, e.g. "Marshal" — leave blank for a single-type product), <b>Category</b> (optional), <b>Unit</b> (optional, defaults to pcs), <b>Quantity</b>, <b>Buying Price</b>, <b>Selling Price</b> (only required when the product/type is brand new), <b>Supplier</b> (optional).</p>
+    <div class="field-row" style="align-items:end;">
+      <div class="field" style="margin-bottom:0;"><label>Excel/CSV file</label><input type="file" id="import-file" accept=".xlsx,.xls,.csv"></div>
+      <div style="margin-bottom:16px;"><button type="button" class="btn btn-secondary btn-sm" id="download-template-btn">Download template</button></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Purchase date</label><input type="date" id="import-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>Default supplier (optional)</label><select id="import-supplier"><option value="">— None / row decides —</option>${supOptions}</select></div>
+    </div>
+    <div class="field"><label>Note (optional)</label><input type="text" id="import-note" placeholder="e.g. Delivery note #2201"></div>
+    <div id="import-preview-wrap"></div>
+    <div id="import-error-box" style="display:none; margin-top:12px; background:#fceaea; border:1px solid var(--danger); color:var(--danger); border-radius:8px; padding:10px 12px; font-size:12.5px; line-height:1.6;"></div>
+  `;
+}
+
+function openImportModal() {
+  importedRows = [];
+  const modal = openModal({
+    title: 'Import Purchases from Excel',
+    large: true,
+    bodyHtml: importModalHtml(),
+    footHtml: `<button class="btn btn-secondary" id="import-cancel-btn">Cancel</button><button class="btn btn-primary" id="import-confirm-btn" disabled>Import 0 item(s)</button>`,
+  });
+  modal.querySelector('#import-cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#download-template-btn').addEventListener('click', downloadImportTemplate);
+  modal.querySelector('#import-file').addEventListener('change', handleImportFile);
+  modal.querySelector('#import-confirm-btn').addEventListener('click', submitImport);
+}
+
+function downloadImportTemplate() {
+  const wsData = [
+    ['Product Name', 'Type', 'Category', 'Unit', 'Quantity', 'Buying Price', 'Selling Price', 'Supplier'],
+    ['Pen', 'Marshal', 'Stationery', 'pcs', 50, 300, 500, ''],
+    ['Pen', 'Obama', 'Stationery', 'pcs', 30, 300, 500, ''],
+    ['Printing Paper A4', '', 'Paper', 'ream', 10, 8000, 10000, ''],
+  ];
+  const ws = XLSX.utils.aoa_to_sheet(wsData);
+  const wb = XLSX.utils.book_new();
+  XLSX.utils.book_append_sheet(wb, ws, 'Purchases');
+  XLSX.writeFile(wb, 'mabumbatech-purchase-import-template.xlsx');
+}
+
+function handleImportFile(e) {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = (evt) => {
+    try {
+      const data = new Uint8Array(evt.target.result);
+      const wb = XLSX.read(data, { type: 'array' });
+      const sheet = wb.Sheets[wb.SheetNames[0]];
+      const json = XLSX.utils.sheet_to_json(sheet, { defval: '' });
+      if (!json.length) { toast('That file has no rows to import.', 'error'); return; }
+      processImportRows(json);
+    } catch (err) {
+      toast('Could not read that file. Make sure it is a valid Excel or CSV file.', 'error');
+    }
+  };
+  reader.readAsArrayBuffer(file);
+}
+
+function findColumn(row, candidates) {
+  const keys = Object.keys(row);
+  for (const c of candidates) {
+    const match = keys.find(k => k.trim().toLowerCase() === c);
+    if (match !== undefined) return match;
+  }
+  return null;
+}
+
+function processImportRows(json) {
+  importedRows = json.map((row, idx) => {
+    const get = (candidates) => {
+      const k = findColumn(row, candidates);
+      return k ? String(row[k]).trim() : '';
+    };
+    const productName = get(['product name', 'product', 'item', 'item name', 'name']);
+    const variantName = get(['type', 'variant', 'variant name']);
+    const category = get(['category']);
+    const unit = get(['unit']) || 'pcs';
+    const qtyRaw = get(['quantity', 'qty']);
+    const buyingRaw = get(['buying price', 'buying', 'cost price', 'unit cost']);
+    const sellingRaw = get(['selling price', 'selling', 'price']);
+    const supplierName = get(['supplier', 'supplier name']);
+    const quantity = qtyRaw !== '' && !isNaN(Number(qtyRaw)) ? Number(qtyRaw) : null;
+
+    let error = null;
+    if (!productName) error = 'Missing product name';
+    else if (!quantity || quantity <= 0) error = 'Missing/invalid quantity';
+
+    let supplierId = '';
+    if (supplierName) {
+      const match = SUPPLIERS.find(s => s.name.toLowerCase() === supplierName.toLowerCase());
+      supplierId = match ? match.id : '';
+    }
+
+    return {
+      row: idx + 2, product_name: productName, variant_name: variantName, category, unit,
+      quantity, buying_price: buyingRaw !== '' && !isNaN(Number(buyingRaw)) ? Number(buyingRaw) : '',
+      selling_price: sellingRaw !== '' && !isNaN(Number(sellingRaw)) ? Number(sellingRaw) : '',
+      supplier_id: supplierId, error,
+    };
+  });
+  document.getElementById('import-error-box').style.display = 'none';
+  renderImportPreview();
+}
+
+function renderImportPreview() {
+  const wrap = document.getElementById('import-preview-wrap');
+  const confirmBtn = document.getElementById('import-confirm-btn');
+  if (!importedRows.length) { wrap.innerHTML = ''; confirmBtn.disabled = true; confirmBtn.textContent = 'Import 0 item(s)'; return; }
+
+  const validCount = importedRows.filter(r => !r.error).length;
+  const errorCount = importedRows.length - validCount;
+  wrap.innerHTML = `
+    <hr style="border:none; border-top:1px solid var(--border); margin:16px 0;">
+    <p class="hint" style="margin:0 0 10px;"><b>${importedRows.length}</b> row(s) found — <b style="color:var(--blue);">${validCount} ready</b>${errorCount ? `, <b style="color:var(--danger);">${errorCount} need fixing</b>` : ''}. New products/types also need Buying and Selling price — those are checked when you click Import.</p>
+    <div class="table-wrap" style="max-height:280px; overflow-y:auto;">
+      <table>
+        <thead><tr><th>#</th><th>Product</th><th>Type</th><th>Qty</th><th>Buying</th><th>Selling</th><th>Status</th></tr></thead>
+        <tbody>
+          ${importedRows.map(r => `<tr style="${r.error ? 'background:#fceaea;' : ''}">
+              <td class="psub">${r.row}</td>
+              <td class="pname">${escapeHtml(r.product_name || '—')}</td>
+              <td class="psub">${escapeHtml(r.variant_name || 'Standard')}</td>
+              <td>${r.quantity ?? '—'} ${escapeHtml(r.unit)}</td>
+              <td>${r.buying_price !== '' ? money(r.buying_price) : '—'}</td>
+              <td>${r.selling_price !== '' ? money(r.selling_price) : '—'}</td>
+              <td>${r.error ? `<span class="badge danger">${escapeHtml(r.error)}</span>` : `<span class="badge success">Ready</span>`}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>
+    </div>
+  `;
+  confirmBtn.disabled = validCount === 0;
+  confirmBtn.textContent = `Import ${validCount} item(s)`;
+}
+
+async function submitImport() {
+  const validRows = importedRows.filter(r => !r.error);
+  if (!validRows.length) return;
+
+  const purchaseDate = document.getElementById('import-date').value;
+  const defaultSupplierId = document.getElementById('import-supplier').value;
+  const note = document.getElementById('import-note').value.trim();
+  const errorBox = document.getElementById('import-error-box');
+  errorBox.style.display = 'none';
+
+  const payload = {
+    items: validRows.map(r => ({
+      product_name: r.product_name,
+      variant_name: r.variant_name,
+      quantity: r.quantity,
+      buying_price: r.buying_price,
+      selling_price: r.selling_price,
+      category: r.category,
+      unit: r.unit,
+      supplier_id: r.supplier_id || defaultSupplierId || '',
+    })),
+    purchase_date: purchaseDate,
+    supplier_id: defaultSupplierId,
+    source: 'import',
+    note,
+  };
+
+  const btn = document.getElementById('import-confirm-btn');
+  btn.disabled = true;
+  btn.textContent = 'Importing…';
+  try {
+    const res = await api.post('api/purchases.php', payload);
+    toast(res && res.message ? res.message : 'Import complete.', 'success');
+    closeModal();
+    loadPurchases();
+  } catch (e) {
+    errorBox.textContent = e.message;
+    errorBox.style.display = 'block';
+    btn.disabled = false;
+    btn.textContent = `Import ${validRows.length} item(s)`;
+  }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadPurchases, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Purchases');
+  const canManage = ['administrator', 'manager', 'stock_manager'].includes(user.role);
+  document.getElementById('page-content').innerHTML = pageContentHtml(canManage);
+
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('filter-source').addEventListener('change', loadPurchases);
+  document.getElementById('filter-start').addEventListener('change', loadPurchases);
+  document.getElementById('filter-end').addEventListener('change', loadPurchases);
+  document.getElementById('filter-clear').addEventListener('click', () => {
+    document.getElementById('filter-source').value = '';
+    document.getElementById('filter-start').value = '';
+    document.getElementById('filter-end').value = '';
+    document.getElementById('search-input').value = '';
+    loadPurchases();
+  });
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  if (canManage) {
+    document.getElementById('import-excel-btn').addEventListener('click', async () => {
+      if (!SUPPLIERS.length) { try { await loadSuppliers(); } catch (e) { /* import still works without supplier matching */ } }
+      openImportModal();
+    });
+  }
+
+  loadPurchases();
+});
+</script>
+</body>
+</html>

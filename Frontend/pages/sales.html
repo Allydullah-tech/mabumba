@@ -1,0 +1,1209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Sales</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .cart-table th, .cart-table td{ font-size:12.5px; }
+  .cart-row-below-min td{ background:#fceaea; }
+  .qty-input, .price-input{ width:100%; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .price-input.below-min{ border-color:var(--danger); color:var(--danger); font-weight:700; }
+  .below-min-flag{ font-size:10.5px; color:var(--danger); font-weight:700; margin-top:2px; }
+  .totals-box{ background:#fafbfd; border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-top:14px; }
+  .totals-row{ display:flex; justify-content:space-between; font-size:13px; padding:4px 0; color:var(--slate-muted); }
+  .totals-row.grand{ font-size:16px; font-weight:700; color:var(--slate); border-top:1px solid var(--border); margin-top:6px; padding-top:10px; }
+  .type-toggle{ display:flex; background:#f1f4fa; border-radius:8px; padding:3px; gap:2px; margin-bottom:14px; }
+  .type-toggle button{ flex:1; border:none; background:none; padding:8px; border-radius:6px; font-size:12.5px; font-weight:600; color:var(--slate-muted); cursor:pointer; }
+  .type-toggle button.active{ background:var(--white); color:var(--blue); box-shadow:0 1px 2px rgba(20,30,60,0.08); }
+  .search-combo{ position:relative; }
+  .suggestion-list{ position:absolute; top:100%; left:0; right:0; background:var(--white); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 24px rgba(15,25,60,0.14); max-height:230px; overflow-y:auto; z-index:60; display:none; margin-top:4px; }
+  .suggestion-list.open{ display:block; }
+  .suggestion-item{ padding:9px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid #f1f3f8; }
+  .suggestion-item:last-child{ border-bottom:none; }
+  .suggestion-item:hover{ background:#f1f4fa; }
+  .suggestion-item .n{ font-weight:600; }
+  .suggestion-item .s{ font-size:11.5px; color:var(--slate-muted); }
+  .suggestion-empty{ padding:12px; font-size:12.5px; color:var(--slate-muted); text-align:center; }
+  .pick-panel{ margin:-4px 0 16px; }
+  .pick-hint{ border:1px dashed var(--border); border-radius:12px; background:#fbfdfb; padding:14px 16px; text-align:center; font-size:12.5px; color:var(--slate-muted); }
+  .pick-card{ border:1px solid var(--border); border-radius:12px; background:var(--white); box-shadow:var(--shadow-sm); overflow:hidden; }
+  .pick-head{ width:100%; display:flex; align-items:center; gap:12px; padding:12px 14px; background:linear-gradient(180deg,#fbfefc,var(--blue-pale)); border:none; cursor:pointer; text-align:left; font-family:inherit; transition:background .15s ease; }
+  .pick-head:hover{ background:var(--blue-pale-2); }
+  .pick-avatar{ width:38px; height:38px; border-radius:10px; background:var(--blue); color:#fff; display:flex; align-items:center; justify-content:center; font:700 16px 'Space Grotesk',sans-serif; flex-shrink:0; }
+  .pick-head-text{ flex:1; min-width:0; display:flex; flex-direction:column; gap:2px; }
+  .pick-title{ font-weight:700; font-size:14px; color:var(--slate); overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .pick-sub{ font-size:12px; color:var(--slate-muted); font-weight:500; }
+  .pick-toggle{ display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:600; color:var(--blue); white-space:nowrap; }
+  .pick-toggle svg{ transition:transform .2s ease; }
+  .pick-toggle svg.up{ transform:rotate(180deg); }
+  .pick-body{ border-top:1px solid var(--border); }
+  .pick-row{ display:flex; align-items:center; gap:12px; padding:11px 14px; border-bottom:1px solid #eef5f0; }
+  .pick-row:last-child{ border-bottom:none; }
+  .pick-row.is-out{ opacity:.65; background:#fafcfb; }
+  .pick-row-main{ flex:1; min-width:0; }
+  .pick-row-name{ font-weight:600; font-size:13.5px; color:var(--slate); }
+  .pick-row-price{ font-size:12px; color:var(--slate-muted); }
+  .pick-row-stock{ display:flex; align-items:center; gap:8px; flex-wrap:wrap; justify-content:flex-end; }
+  .pick-incart{ font-size:11px; font-weight:600; color:var(--blue); background:var(--blue-pale); border-radius:20px; padding:2px 8px; }
+  .pu-chips{ margin-top:3px; font-size:11px; color:var(--blue); font-weight:600; line-height:1.5; }
+  .pu-link{ border:none; background:none; padding:0; margin-top:3px; font:600 11px 'Inter',sans-serif; color:var(--blue); cursor:pointer; text-decoration:underline; }
+  .pu-question{ font-size:14px; color:var(--slate); margin:0 0 14px; }
+  .pu-row{ display:flex; align-items:center; gap:10px; padding:9px 12px; border:1px solid var(--border); border-radius:9px; margin-bottom:8px; background:var(--white); }
+  .pu-row .pu-name{ flex:1; min-width:0; font-weight:600; font-size:13px; color:var(--slate); }
+  .pu-row .pu-name small{ display:block; font-weight:500; font-size:11.5px; color:var(--slate-muted); }
+  .pu-row input{ width:84px; padding:6px 8px; border:1px solid var(--border); border-radius:6px; font-size:13px; }
+  .suggestion-item.is-out{ opacity:.5; cursor:not-allowed; }
+  /* ---- Receipt (thermal-style, monospace) ---- */
+  .receipt-box{ font-family:'Courier New',Courier,monospace; max-width:340px; margin:0 auto; padding:6px 4px 2px; font-size:13px; line-height:1.45; color:#1d2a24; }
+  .rc-logo{ display:block; height:62px; width:auto; margin:4px auto 8px; }
+  .rc-tagline{ text-align:center; font-weight:700; font-size:13.5px; letter-spacing:.6px; color:#16a34a; margin-bottom:6px; }
+  .rc-addr{ text-align:center; font-size:11.5px; line-height:1.55; color:#3a4a42; }
+  .rc-sep{ border:none; border-top:1px dashed #8a9790; margin:12px 0; }
+  .rc-row{ display:flex; justify-content:space-between; align-items:baseline; gap:14px; padding:2px 0; }
+  .rc-row .rc-v{ text-align:right; }
+  .rc-item{ padding:3px 0; }
+  .rc-item .rc-name{ font-weight:700; }
+  .rc-total{ font-weight:700; font-size:14px; }
+  .rc-due{ font-weight:700; }
+  .rc-thanks{ text-align:center; font-size:11.5px; line-height:1.6; color:#3a4a42; margin-top:2px; }
+  @page{ margin:0; }   /* removes the browser's own print header/footer (date, page title, web address, page numbers) */
+  @media print{
+    html, body{ background:#fff !important; margin:0 !important; padding:0 !important; height:auto !important; }
+    body > *:not(#shared-modal-backdrop){ display:none !important; }
+    #shared-modal-backdrop{ position:static !important; display:block !important; background:none !important; padding:0 !important; backdrop-filter:none !important; }
+    #shared-modal-backdrop .modal{ box-shadow:none !important; border:none !important; border-radius:0 !important; width:auto !important; max-width:none !important; max-height:none !important; overflow:visible !important; }
+    #shared-modal-backdrop .modal-head, #shared-modal-backdrop .modal-foot, .no-print{ display:none !important; }
+    #shared-modal-backdrop .modal-body{ padding:0 !important; max-height:none !important; overflow:visible !important; }
+    #receipt-content{ max-width:80mm; margin:0 auto; padding:8mm 4mm; -webkit-print-color-adjust:exact; print-color-adjust:exact; }
+  }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script src="../js/cash-audit.js"></script>
+<script>
+window.CURRENT_PAGE = 'sales';
+
+let CURRENT_USER = null;
+let VARIANTS = [];   // product types, via product_variants.php?names_only=1
+let SERVICES = [];
+let SERVICE_OPTIONS = []; // flattened: services with no types, plus one entry per type (e.g. "Printing — Color")
+let PAYMENT_METHODS = [];
+let COMPANY = {};
+let cart = []; // { item_type, variant_id, service_id, description, quantity, unit_price, minimum_price, materials: [{variant_id, quantity, display_name, unit}] (products used — services/custom only) }
+let editingSaleId = null;
+
+/* ---------------------------- Page shell ---------------------------- */
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div>
+        <h2>Sales</h2>
+        <p>Record product, service and custom-priced sales.</p>
+      </div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="cash-audit-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="4" width="14" height="12" rx="1.6"/><path d="M3 8h14M7 12h2"/></svg>
+          Cash Audit
+        </button>
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-primary" id="new-sale-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          New Sale
+        </button>
+      </div>
+    </div>
+
+    <div class="hero-row" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="hero-card">
+        <div class="label">Today's sales</div>
+        <div class="amount" id="stat-today-total">—</div>
+        <div class="delta" id="stat-today-count">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="top-row"><div class="label">Cash sales today</div></div>
+        <div class="amount" id="stat-cash">—</div>
+      </div>
+      <div class="stat-card">
+        <div class="top-row"><div class="label">Credit sales today</div></div>
+        <div class="amount" id="stat-credit">—</div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search by invoice, customer...">
+        </div>
+        <input type="date" class="filter-select" id="filter-start">
+        <input type="date" class="filter-select" id="filter-end">
+        <button class="btn btn-secondary btn-sm" id="filter-clear">Clear</button>
+      </div>
+      <div class="table-wrap" id="sales-table-wrap">
+        <div class="loading-row"><span class="spinner"></span> Loading sales…</div>
+      </div>
+    </div>
+  `;
+}
+
+/* ---------------------------- Data loading ---------------------------- */
+
+async function loadStats() {
+  const today = new Date().toISOString().slice(0, 10);
+  const sales = await api.get('api/sales.php', { start: today, end: today, limit: 500 });
+  const total = sales.reduce((s, r) => s + Number(r.total_amount), 0);
+  const cash = sales.filter(r => r.payment_type === 'cash').reduce((s, r) => s + Number(r.total_amount), 0);
+  const credit = sales.filter(r => r.payment_type === 'credit').reduce((s, r) => s + Number(r.total_amount), 0);
+  document.getElementById('stat-today-total').innerHTML = `${money(total)} <span>TZS</span>`;
+  document.getElementById('stat-today-count').textContent = `${sales.length} transaction${sales.length === 1 ? '' : 's'} today`;
+  document.getElementById('stat-cash').textContent = money(cash);
+  document.getElementById('stat-credit').textContent = money(credit);
+}
+
+async function loadSalesTable() {
+  const wrap = document.getElementById('sales-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading sales…</div>`;
+  const query = {};
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) query.start = start;
+  if (end) query.end = end;
+
+  try {
+    let sales = await api.get('api/sales.php', { ...query, limit: 200 });
+    const q = document.getElementById('search-input').value.trim().toLowerCase();
+    if (q) {
+      sales = sales.filter(s =>
+        (s.invoice_no || '').toLowerCase().includes(q) ||
+        (s.customer_name || '').toLowerCase().includes(q) ||
+        (s.item_names || '').toLowerCase().includes(q)
+      );
+    }
+    if (!sales.length) {
+      wrap.innerHTML = `<div class="empty-state"><div class="t">No sales found</div><p>Try a different search or date range.</p></div>`;
+      return;
+    }
+    const canManage = ['administrator'].includes(CURRENT_USER.role);
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Invoice</th><th>Date</th><th>Customer</th><th>Items</th><th>Amount</th><th>Payment</th><th>Sold by</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${sales.map(s => `
+            <tr>
+              <td class="pname">${escapeHtml(s.invoice_no)}</td>
+              <td>${fmtDate(s.sale_date)}</td>
+              <td>${escapeHtml(s.customer_name || 'Walk-in')}</td>
+              <td><div class="psub" style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(s.item_names || '')}</div></td>
+              <td class="pname">${money(s.total_amount)}</td>
+              <td>
+                <span class="badge ${s.payment_type === 'credit' ? 'credit' : 'cash'}">${s.payment_type === 'credit' ? 'Credit' : (s.payment_method_name || 'Cash')}</span>
+                ${changeBadgeHtml(s)}
+              </td>
+              <td class="psub">${escapeHtml(s.sold_by_name)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn-icon" title="View" onclick="viewSale(${s.id})">
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z"/><circle cx="10" cy="10" r="2.2"/></svg>
+                </button>
+                ${Number(s.change_left_amount) > Number(s.change_collected_amount) ? `
+                <button class="btn-icon" title="Collect left change" onclick="openCollectChangeModal(${s.id})">
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3c3.3 0 6 1 6 2.2v9.6c0 1.2-2.7 2.2-6 2.2s-6-1-6-2.2V5.2C4 4 6.7 3 10 3Z"/><path d="M4 5.2c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2M4 10c0 1.2 2.7 2.2 6 2.2s6-1 6-2.2"/></svg>
+                </button>` : ''}
+                ${canManage ? `
+                <button class="btn-icon" title="Edit" onclick="editSale(${s.id})">
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg>
+                </button>
+                <button class="btn-icon" title="Delete" onclick="deleteSale(${s.id}, '${escapeHtml(s.invoice_no)}')">
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg>
+                </button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load sales</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+async function preloadCatalogs() {
+  [VARIANTS, SERVICES, PAYMENT_METHODS, COMPANY] = await Promise.all([
+    api.get('api/product_variants.php', { names_only: 1, status: 'active' }),
+    api.get('api/services.php', { names_only: 1, status: 'active' }),
+    api.get('api/payment_methods.php', { status: 'active' }),
+    api.get('api/settings.php'),
+  ]);
+  buildServiceOptions();
+  buildProductGroups();
+}
+
+/* Group product types under their parent product so the picker can show
+   "Compass — 2 descriptions" first, then the stock of each on click. */
+let PRODUCT_GROUPS = [];
+function buildProductGroups() {
+  const map = new Map();
+  VARIANTS.forEach((v) => {
+    const key = v.product_id != null ? String(v.product_id) : 'n:' + v.product_name;
+    if (!map.has(key)) map.set(key, { id: key, name: v.product_name, variants: [] });
+    map.get(key).variants.push(v);
+  });
+  PRODUCT_GROUPS = [...map.values()].map((g) => ({
+    ...g,
+    totalStock: g.variants.reduce((t, v) => t + Number(v.stock_quantity || 0), 0),
+    search: (g.name + ' ' + g.variants.map((v) => v.variant_name).join(' ')).toLowerCase(),
+  }));
+}
+
+/* ---------------------------- Product / service pick panel ---------------------------- */
+
+let PICKED = { product: null, service: null };
+let PICK_OPEN = { product: false, service: false };
+
+// A lone "Standard" description reads as just the service name (same as products).
+function svcDescLabel(serviceName, variantName) { return variantName === 'Standard' ? serviceName : `${serviceName} — ${variantName}`; }
+function descCount(n) { return `${n} description${n === 1 ? '' : 's'}`; }
+const CHEVRON_SVG = (up) => `<svg class="${up ? 'up' : ''}" width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m5 8 5 5 5-5"/></svg>`;
+
+function pickItem(kind, id) {
+  PICKED[kind] = String(id);
+  if (kind === 'product') {
+    const g = PRODUCT_GROUPS.find(x => x.id === String(id));
+    PICK_OPEN.product = !!g && g.variants.length === 1;
+  } else {
+    const sv = SERVICES.find(x => String(x.id) === String(id));
+    PICK_OPEN.service = !!sv && !(sv.variants && sv.variants.length > 1);
+  }
+  renderPickPanel(kind);
+}
+function togglePick(kind) { PICK_OPEN[kind] = !PICK_OPEN[kind]; renderPickPanel(kind); }
+
+function renderPickPanel(kind) {
+  const box = document.getElementById(kind + '-pick-panel');
+  if (!box) return;
+  const id = PICKED[kind];
+  const html = id == null ? '' : (kind === 'product' ? productPickCardHtml(id) : servicePickCardHtml(id));
+  box.innerHTML = html || `<div class="pick-hint">Search and select a ${kind} above — you'll see how many descriptions it has, and can open them to choose one.</div>`;
+}
+function refreshPickPanels() { renderPickPanel('product'); renderPickPanel('service'); }
+
+function pickCardShell(kind, name, subtitle, rowsHtml) {
+  const open = PICK_OPEN[kind];
+  return `
+    <div class="pick-card">
+      <button type="button" class="pick-head" onclick="togglePick('${kind}')" aria-expanded="${open}">
+        <span class="pick-avatar">${escapeHtml((name || '?').trim().charAt(0).toUpperCase())}</span>
+        <span class="pick-head-text"><span class="pick-title">${escapeHtml(name)}</span><span class="pick-sub">${subtitle}</span></span>
+        <span class="pick-toggle">${open ? 'Hide' : 'View'} descriptions ${CHEVRON_SVG(open)}</span>
+      </button>
+      ${open ? `<div class="pick-body">${rowsHtml}</div>` : ''}
+    </div>`;
+}
+
+function productPickCardHtml(id) {
+  const g = PRODUCT_GROUPS.find(x => x.id === String(id));
+  if (!g) return '';
+  const rows = g.variants.map((v) => {
+    const stock = Number(v.stock_quantity);
+    const out = stock <= 0;
+    const low = !out && stock <= Number(v.reorder_level || 0);
+    const inCart = cart.filter(i => i.item_type === 'product' && i.variant_id === v.id).reduce((t, i) => t + i.quantity, 0);
+    return `
+      <div class="pick-row ${out ? 'is-out' : ''}">
+        <div class="pick-row-main">
+          <div class="pick-row-name">${escapeHtml(v.variant_name)}</div>
+          <div class="pick-row-price">${money(v.selling_price)} TZS</div>
+        </div>
+        <div class="pick-row-stock">
+          <span class="badge ${out ? 'danger' : (low ? 'warn' : 'success')}">${out ? 'Out of stock' : `${stock} ${escapeHtml(v.unit)} in stock`}</span>
+          ${inCart ? `<span class="pick-incart">${inCart} in this sale</span>` : ''}
+        </div>
+        <button type="button" class="btn btn-primary btn-sm" ${out ? 'disabled' : ''} onclick="addVariantToCart(${v.id})">Add</button>
+      </div>`;
+  }).join('');
+  return pickCardShell('product', g.name, `${descCount(g.variants.length)} &middot; ${g.totalStock} in stock`, rows);
+}
+
+function servicePickCardHtml(id) {
+  const sv = SERVICES.find(x => String(x.id) === String(id));
+  if (!sv) return '';
+  const variants = sv.variants || [];
+  const inCartFor = (desc) => cart.filter(i => i.item_type === 'service' && i.service_id === sv.id && i.description === desc).reduce((t, i) => t + i.quantity, 0);
+  const row = (label, price, key, desc) => {
+    const n = inCartFor(desc);
+    return `
+      <div class="pick-row">
+        <div class="pick-row-main">
+          <div class="pick-row-name">${escapeHtml(label)}</div>
+          <div class="pick-row-price">${money(price)} TZS</div>
+        </div>
+        <div class="pick-row-stock">${n ? `<span class="pick-incart">${n} in this sale</span>` : ''}</div>
+        <button type="button" class="btn btn-primary btn-sm" onclick="addServiceToCart('${key}')">Add</button>
+      </div>`;
+  };
+  const rows = variants.length
+    ? variants.map(v => row(v.variant_name, v.price, `sv:${sv.id}:${v.id}`, svcDescLabel(sv.name, v.variant_name))).join('')
+    : row('Standard price', sv.price, `s:${sv.id}`, sv.name);
+  const subtitle = variants.length ? descCount(variants.length) : `No descriptions &middot; ${money(sv.price)} TZS`;
+  return pickCardShell('service', sv.name, subtitle, rows);
+}
+
+/* Flatten services + their optional types into one pickable list, e.g.
+   "Printing — Color" and "Printing — Black & White" alongside plain
+   services that have no types at all. */
+function buildServiceOptions() {
+  SERVICE_OPTIONS = [];
+  SERVICES.forEach((s) => {
+    if (s.variants && s.variants.length) {
+      s.variants.forEach((v) => {
+        SERVICE_OPTIONS.push({
+          id: `sv:${s.id}:${v.id}`,
+          name: svcDescLabel(s.name, v.variant_name),
+          price: Number(v.price),
+        });
+      });
+    } else {
+      SERVICE_OPTIONS.push({ id: `s:${s.id}`, name: s.name, price: Number(s.price) });
+    }
+  });
+}
+
+/* ---------------------------- Cart rendering ---------------------------- */
+
+function cartRowHtml(item, idx) {
+  const typeLabel = { product: 'Product', service: 'Service', custom: 'Custom' }[item.item_type];
+  const belowMin = item.minimum_price && item.unit_price < item.minimum_price;
+  return `
+    <tr class="${belowMin ? 'cart-row-below-min' : ''}">
+      <td><span class="badge blue">${typeLabel}</span></td>
+      <td class="pname">${escapeHtml(item.description)}${productsUsedCellHtml(item, idx)}</td>
+      <td><input type="number" min="1" class="qty-input" value="${item.quantity}" onchange="updateCartQty(${idx}, this.value)"></td>
+      <td>
+        <input type="number" min="0" step="1" class="price-input ${belowMin ? 'below-min' : ''}" value="${item.unit_price}" onchange="updateCartPrice(${idx}, this.value)">
+        ${belowMin ? `<div class="below-min-flag">Below min. of ${money(item.minimum_price)}</div>` : ''}
+      </td>
+      <td class="pname">${money(item.quantity * item.unit_price)}</td>
+      <td><button class="btn-icon" onclick="removeCartItem(${idx})"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15"/></svg></button></td>
+    </tr>`;
+}
+
+function productsUsedCellHtml(item, idx) {
+  if (item.item_type === 'product') return '';
+  const used = item.materials || [];
+  const chips = used.length
+    ? `<div class="pu-chips">Products used: ${used.map(m => `${escapeHtml(m.display_name)} ×${m.quantity}`).join(', ')}</div>`
+    : '';
+  return `${chips}<button type="button" class="pu-link" onclick="editCartMaterials(${idx})">${used.length ? 'Change products used' : 'Products used?'}</button>`;
+}
+
+function renderCart() {
+  const body = document.getElementById('cart-body');
+  if (!body) return;
+  body.innerHTML = cart.length
+    ? cart.map((item, idx) => cartRowHtml(item, idx)).join('')
+    : `<tr><td colspan="6" style="text-align:center; color:var(--slate-muted); padding:18px;">No items added yet.</td></tr>`;
+  renderTotals();
+  refreshPickPanels();
+}
+
+function renderTotals() {
+  const subtotal = cart.reduce((s, i) => s + i.quantity * i.unit_price, 0);
+  const discountEl = document.getElementById('sale-discount');
+  const discount = Math.min(Number(discountEl ? discountEl.value : 0) || 0, subtotal);
+  const totalsBox = document.getElementById('totals-box');
+  if (!totalsBox) return;
+  const total = Math.max(subtotal - discount, 0);
+  totalsBox.innerHTML = `
+    <div class="totals-row"><span>Subtotal</span><span>${money(subtotal)} TZS</span></div>
+    <div class="totals-row"><span>Discount</span><span>-${money(discount)} TZS</span></div>
+    <div class="totals-row grand"><span>Total</span><span>${money(total)} TZS</span></div>
+  `;
+}
+
+function updateCartQty(idx, val) { cart[idx].quantity = Math.max(1, parseInt(val) || 1); renderCart(); }
+function updateCartPrice(idx, val) { cart[idx].unit_price = Math.max(0, parseFloat(val) || 0); renderCart(); }
+function removeCartItem(idx) { cart.splice(idx, 1); renderCart(); }
+
+function addVariantToCart(id) {
+  const v = VARIANTS.find(x => x.id === Number(id));
+  if (!v) return;
+  if (Number(v.stock_quantity) <= 0) { toast(`"${v.display_name}" is out of stock.`, 'error'); return; }
+  const line = cart.find(i => i.item_type === 'product' && i.variant_id === v.id);
+  if (line) {
+    if (!editingSaleId && line.quantity >= Number(v.stock_quantity)) { toast(`Only ${v.stock_quantity} ${v.unit} of "${v.display_name}" in stock.`, 'error'); return; }
+    line.quantity += 1;
+  } else {
+    cart.push({
+      item_type: 'product', variant_id: v.id, service_id: null, description: v.display_name,
+      quantity: 1, unit_price: Number(v.selling_price), minimum_price: v.minimum_price ? Number(v.minimum_price) : null,
+    });
+  }
+  renderCart();
+}
+function addServiceToCart(key) {
+  let template = null;
+  if (key.startsWith('sv:')) {
+    const [, serviceId, variantId] = key.split(':').map(Number);
+    const s = SERVICES.find(x => x.id === serviceId);
+    const v = s && s.variants ? s.variants.find(x => x.id === variantId) : null;
+    if (!s || !v) return;
+    template = {
+      item_type: 'service', variant_id: null, service_id: s.id, description: svcDescLabel(s.name, v.variant_name),
+      quantity: 1, unit_price: Number(v.price), minimum_price: v.minimum_price ? Number(v.minimum_price) : null,
+    };
+  } else {
+    const id = Number(key.replace('s:', ''));
+    const s = SERVICES.find(x => x.id === id);
+    if (!s) return;
+    template = {
+      item_type: 'service', variant_id: null, service_id: s.id, description: s.name,
+      quantity: 1, unit_price: Number(s.price), minimum_price: s.minimum_price ? Number(s.minimum_price) : null,
+    };
+  }
+  // Ask whether any product is used before the service goes into the sale.
+  openProductsUsedDialog({
+    itemName: template.description,
+    materials: [],
+    onConfirm: (materials) => {
+      // Identical service with no products used just bumps the quantity; a line
+      // with products used stays its own line so its stock/cost is exact.
+      const line = materials.length ? null : cart.find(i => i.item_type === 'service' && i.service_id === template.service_id
+        && i.description === template.description && !(i.materials || []).length);
+      if (line) line.quantity += 1;
+      else cart.push({ ...template, materials });
+      renderCart();
+    },
+  });
+}
+function addCustomToCart() {
+  const desc = document.getElementById('custom-desc').value.trim();
+  const price = parseFloat(document.getElementById('custom-price').value) || 0;
+  if (!desc) { toast('Describe the custom service first.', 'error'); return; }
+  openProductsUsedDialog({
+    itemName: desc,
+    materials: [],
+    onConfirm: (materials) => {
+      cart.push({ item_type: 'custom', variant_id: null, service_id: null, description: desc, quantity: 1, unit_price: price, minimum_price: null, materials });
+      document.getElementById('custom-desc').value = '';
+      document.getElementById('custom-price').value = '';
+      renderCart();
+    },
+  });
+}
+function editCartMaterials(idx) {
+  const item = cart[idx];
+  if (!item || item.item_type === 'product') return;
+  openProductsUsedDialog({
+    itemName: item.description,
+    materials: item.materials || [],
+    confirmLabel: 'Save',
+    onConfirm: (materials) => { item.materials = materials; renderCart(); },
+  });
+}
+
+/* ---------------------------- "Is any product used?" dialog ----------------------------
+   Shown when a service is added to a sale. It sits on top of the sale form (its own
+   overlay, so the sale in progress is not replaced). Picking products only deducts stock
+   and counts their cost against profit — the price the customer pays is never changed. */
+
+function openProductsUsedDialog({ itemName, materials = [], confirmLabel = 'Add to sale', onConfirm }) {
+  const existing = document.getElementById('pu-backdrop');
+  if (existing) existing.remove();
+
+  let rows = materials.map(m => ({ variant_id: Number(m.variant_id), quantity: Number(m.quantity) || 1, display_name: m.display_name, unit: m.unit || '' }));
+  const backdrop = document.createElement('div');
+  backdrop.className = 'modal-backdrop open';
+  backdrop.id = 'pu-backdrop';
+  backdrop.innerHTML = `
+    <div class="modal">
+      <div class="modal-head"><h3>Products used</h3>
+        <button class="modal-close" id="pu-close"><svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
+      </div>
+      <div class="modal-body">
+        <p class="pu-question">Is any product used to provide <b>${escapeHtml(itemName)}</b>?</p>
+        <div class="type-toggle" id="pu-toggle">
+          <button type="button" data-pu="no">No</button>
+          <button type="button" data-pu="yes" class="${rows.length ? 'active' : ''}">Yes</button>
+        </div>
+        <div id="pu-yes-panel" style="display:${rows.length ? 'block' : 'none'};">
+          <div class="field search-combo">
+            <label>Search or choose a product</label>
+            <input type="text" id="pu-search" placeholder="Click to choose, or type to search, e.g. Manila…" autocomplete="off">
+            <div class="suggestion-list" id="pu-suggestions"></div>
+          </div>
+          <div id="pu-rows"></div>
+          <p class="hint" style="margin:6px 0 0;">Enter the total quantity used for this service. It is taken out of stock and its cost is counted against your profit only — the customer still pays, and the sale is recorded at, the full price.</p>
+        </div>
+      </div>
+      <div class="modal-foot" id="pu-foot" style="display:${rows.length ? 'flex' : 'none'};">
+        <button class="btn btn-secondary" id="pu-cancel">Cancel</button>
+        <button class="btn btn-primary" id="pu-confirm">${escapeHtml(confirmLabel)}</button>
+      </div>
+    </div>`;
+  document.body.appendChild(backdrop);
+
+  const input = backdrop.querySelector('#pu-search');
+  const list = backdrop.querySelector('#pu-suggestions');
+  const rowsBox = backdrop.querySelector('#pu-rows');
+
+  const onDocClick = (e) => { if (!input.contains(e.target) && !list.contains(e.target)) list.classList.remove('open'); };
+  document.addEventListener('click', onDocClick);
+  const close = () => { document.removeEventListener('click', onDocClick); backdrop.remove(); };
+
+  function renderRows() {
+    rowsBox.innerHTML = rows.map((r, i) => `
+      <div class="pu-row">
+        <div class="pu-name">${escapeHtml(r.display_name)}<small>${escapeHtml(r.unit)}</small></div>
+        <input type="number" min="1" step="1" value="${r.quantity}" title="Quantity used" data-i="${i}">
+        <button type="button" class="btn-icon" data-rm="${i}" title="Remove"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
+      </div>`).join('');
+  }
+
+  function renderList() {
+    const q = input.value.trim().toLowerCase();
+    const matches = VARIANTS.filter(v => !q || (v.display_name || '').toLowerCase().includes(q)).slice(0, 50);
+    list.innerHTML = matches.length
+      ? matches.map(v => {
+          const out = Number(v.stock_quantity) <= 0 && !editingSaleId;
+          return `<div class="suggestion-item ${out ? 'is-out' : ''}" data-id="${v.id}">
+            <div class="n">${escapeHtml(v.display_name)}</div>
+            <div class="s">${out ? 'Out of stock' : `${v.stock_quantity} ${escapeHtml(v.unit || '')} in stock`}</div>
+          </div>`;
+        }).join('')
+      : `<div class="suggestion-empty">No products match "${escapeHtml(input.value)}"</div>`;
+    list.classList.add('open');
+  }
+
+  input.addEventListener('focus', renderList);
+  input.addEventListener('click', renderList);
+  input.addEventListener('input', renderList);
+  list.addEventListener('click', (e) => {
+    const el = e.target.closest('.suggestion-item[data-id]');
+    if (!el || el.classList.contains('is-out')) return;
+    const v = VARIANTS.find(x => x.id === Number(el.dataset.id));
+    if (!v) return;
+    if (rows.some(r => r.variant_id === v.id)) { toast(`"${v.display_name}" is already in the list — change its quantity instead.`, 'error'); return; }
+    rows.push({ variant_id: v.id, quantity: 1, display_name: v.display_name, unit: v.unit || '' });
+    input.value = '';
+    list.classList.remove('open');
+    renderRows();
+  });
+  rowsBox.addEventListener('input', (e) => {
+    const i = e.target.dataset ? e.target.dataset.i : undefined;
+    if (i !== undefined) rows[Number(i)].quantity = parseInt(e.target.value, 10) || 0;
+  });
+  rowsBox.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-rm]');
+    if (!btn) return;
+    rows.splice(Number(btn.dataset.rm), 1);
+    renderRows();
+  });
+
+  backdrop.querySelector('#pu-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-pu]');
+    if (!btn) return;
+    if (btn.dataset.pu === 'no') { close(); onConfirm([]); return; }   // no product used: go straight on
+    backdrop.querySelectorAll('#pu-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    backdrop.querySelector('#pu-yes-panel').style.display = 'block';
+    backdrop.querySelector('#pu-foot').style.display = 'flex';
+    input.focus();
+  });
+
+  backdrop.querySelector('#pu-confirm').addEventListener('click', () => {
+    if (!rows.length) { toast('Choose at least one product, or click "No".', 'error'); return; }
+    if (rows.some(r => !(r.quantity >= 1))) { toast('Enter a quantity of 1 or more for every product.', 'error'); return; }
+    if (!editingSaleId) {
+      for (const r of rows) {
+        const v = VARIANTS.find(x => x.id === r.variant_id);
+        if (v && r.quantity > Number(v.stock_quantity)) { toast(`Only ${v.stock_quantity} ${v.unit || ''} of "${v.display_name}" in stock.`, 'error'); return; }
+      }
+    }
+    close();
+    onConfirm(rows.map(r => ({ ...r })));
+  });
+  backdrop.querySelector('#pu-cancel').addEventListener('click', close);
+  backdrop.querySelector('#pu-close').addEventListener('click', close);
+  backdrop.addEventListener('click', (e) => { if (e.target === backdrop) close(); });
+
+  renderRows();
+}
+
+/* ---------------------------- Search-as-you-type pickers ---------------------------- */
+
+function wireSearchCombo({ inputId, listId, source, labelKey, subFn, onPick, matchFn = null, keepLabel = false }) {
+  const input = document.getElementById(inputId);
+  const list = document.getElementById(listId);
+
+  function render(query) {
+    const q = query.trim().toLowerCase();
+    if (!q) { list.classList.remove('open'); list.innerHTML = ''; return; }
+    const matches = source().filter(item => matchFn ? matchFn(item, q) : item[labelKey].toLowerCase().includes(q)).slice(0, 8);
+    if (!matches.length) {
+      list.innerHTML = `<div class="suggestion-empty">No matches for "${escapeHtml(query)}"</div>`;
+    } else {
+      list.innerHTML = matches.map(item => `
+        <div class="suggestion-item" data-id="${item.id}">
+          <div class="n">${escapeHtml(item[labelKey])}</div>
+          <div class="s">${escapeHtml(subFn(item))}</div>
+        </div>`).join('');
+    }
+    list.classList.add('open');
+  }
+
+  input.addEventListener('input', () => render(input.value));
+  input.addEventListener('focus', () => { if (input.value.trim()) render(input.value); });
+  list.addEventListener('click', (e) => {
+    const row = e.target.closest('.suggestion-item[data-id]');
+    if (!row) return;
+    onPick(row.dataset.id);
+    const picked = source().find(item => String(item.id) === String(row.dataset.id));
+    input.value = keepLabel && picked ? picked[labelKey] : '';
+    list.classList.remove('open');
+    list.innerHTML = '';
+  });
+  document.addEventListener('click', (e) => {
+    if (!input.contains(e.target) && !list.contains(e.target)) list.classList.remove('open');
+  });
+}
+
+function togglePaymentFields(type) {
+  document.getElementById('cash-fields').style.display = type === 'cash' ? 'block' : 'none';
+  document.getElementById('credit-fields').style.display = type === 'credit' ? 'block' : 'none';
+}
+
+function saleFormModalHtml(existing = null) {
+  const onlineOptions = PAYMENT_METHODS.filter(pm => pm.slug !== 'cash')
+    .map(pm => `<option value="${pm.id}" ${existing && existing.payment_method_id === pm.id ? 'selected' : ''}>${escapeHtml(pm.name)}</option>`).join('');
+  const cashMethod = PAYMENT_METHODS.find(pm => pm.slug === 'cash');
+  const existingIsOnline = existing && existing.payment_type === 'cash' && existing.payment_method_id && (!cashMethod || existing.payment_method_id !== cashMethod.id);
+  const paymentType = existing ? existing.payment_type : 'cash';
+
+  return `
+    <div class="type-toggle" id="add-type-toggle">
+      <button type="button" class="active" data-add="product">+ Product</button>
+      <button type="button" data-add="service">+ Service</button>
+      <button type="button" data-add="custom">+ Custom service</button>
+    </div>
+
+    <div id="add-product-row">
+      <div class="field search-combo">
+        <label>Product</label>
+        <input type="text" id="product-search" placeholder="Start typing a product name, e.g. Compass…" autocomplete="off">
+        <div class="suggestion-list" id="product-suggestions"></div>
+      </div>
+      <div class="pick-panel" id="product-pick-panel"></div>
+    </div>
+    <div id="add-service-row" style="display:none;">
+      <div class="field search-combo">
+        <label>Service</label>
+        <input type="text" id="service-search" placeholder="Start typing a service name, e.g. Printing…" autocomplete="off">
+        <div class="suggestion-list" id="service-suggestions"></div>
+      </div>
+      <div class="pick-panel" id="service-pick-panel"></div>
+    </div>
+    <div id="add-custom-row" style="display:none;">
+      <div class="field-row" style="align-items:end;">
+        <div class="field" style="margin-bottom:0;">
+          <label>Description of the agreed job</label>
+          <input type="text" id="custom-desc" placeholder="e.g. Custom logo design">
+        </div>
+        <div class="field" style="margin-bottom:0;">
+          <label>Agreed price (TZS)</label>
+          <input type="number" id="custom-price" min="0" placeholder="0">
+        </div>
+        <div style="margin-bottom:16px;"><button type="button" class="btn btn-secondary" onclick="addCustomToCart()">Add</button></div>
+      </div>
+      <p class="hint" style="margin:-8px 0 14px;">Use this for one-off jobs with no catalog price — whatever you and the customer agreed on.</p>
+    </div>
+
+    <div class="table-wrap">
+      <table class="cart-table">
+        <thead><tr><th>Type</th><th>Item</th><th>Qty</th><th>Price</th><th>Line total</th><th></th></tr></thead>
+        <tbody id="cart-body"></tbody>
+      </table>
+    </div>
+
+    <div class="field" style="margin-top:14px;">
+      <label>Discount (TZS)</label>
+      <input type="number" id="sale-discount" min="0" value="${existing ? existing.discount_amount : 0}" oninput="renderTotals()">
+    </div>
+
+    <div class="totals-box" id="totals-box"></div>
+
+    <hr style="border:none; border-top:1px solid var(--border); margin:20px 0;">
+
+    <div class="field">
+      <label>Payment type</label>
+      <div class="type-toggle" id="payment-type-toggle">
+        <button type="button" data-pt="cash" class="${paymentType === 'cash' ? 'active' : ''}">Cash / Paid now</button>
+        <button type="button" data-pt="credit" class="${paymentType === 'credit' ? 'active' : ''}">Credit (pay later)</button>
+      </div>
+    </div>
+
+    <div id="cash-fields" style="display:${paymentType === 'cash' ? 'block' : 'none'};">
+      <div class="field">
+        <label>How was it paid?</label>
+        <div class="type-toggle" id="cash-type-toggle">
+          <button type="button" data-ct="cash" class="${!existingIsOnline ? 'active' : ''}">Cash in Hand</button>
+          <button type="button" data-ct="online" class="${existingIsOnline ? 'active' : ''}">Online Transaction</button>
+        </div>
+      </div>
+      <div class="field" id="online-method-field" style="display:${existingIsOnline ? 'block' : 'none'};">
+        <label>Select method</label>
+        <select id="online-method-id">${onlineOptions}</select>
+      </div>
+      <div id="change-left-field" style="display:${!existingIsOnline ? 'block' : 'none'};">
+        <label class="checkbox-row" style="margin-bottom:10px;">
+          <input type="checkbox" id="change-left-toggle" ${existing && existing.change_left_amount > 0 ? 'checked' : ''}>
+          Customer left change (balance due to customer)
+        </label>
+        <div id="change-left-details" style="display:${existing && existing.change_left_amount > 0 ? 'block' : 'none'};">
+          <div class="field-row">
+            <div class="field">
+              <label>Customer Change (TZS)</label>
+              <input type="number" id="change-left-amount" min="0" placeholder="Amount the customer did not collect" value="${existing ? existing.change_left_amount || '' : ''}">
+            </div>
+            <div class="field">
+              <label>Customer Name <span style="font-weight:600; color:var(--warn);">(required when customer leaves change)</span></label>
+              <input type="text" id="change-left-name" placeholder="Who the change belongs to" value="${existing ? escapeHtml(existing.change_left_customer_name || '') : ''}">
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="credit-fields" style="display:${paymentType === 'credit' ? 'block' : 'none'};">
+      <div class="field-row">
+        <div class="field"><label>Customer name</label><input type="text" id="customer-name" value="${existing ? escapeHtml(existing.customer_name || '') : ''}"></div>
+        <div class="field"><label>Customer phone</label><input type="text" id="customer-phone" value="${existing ? escapeHtml(existing.customer_phone || '') : ''}"></div>
+      </div>
+      <div class="field"><label>Payment deadline</label><input type="date" id="credit-deadline" value="${existing ? existing.credit_deadline || '' : ''}"></div>
+    </div>
+
+    <div class="field-row">
+      <div class="field"><label>Sale date</label><input type="date" id="sale-date" value="${existing ? existing.sale_date : new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>Note (optional)</label><input type="text" id="sale-note" value="${existing ? escapeHtml(existing.note || '') : ''}"></div>
+    </div>
+  `;
+}
+
+function wireSaleModalEvents() {
+  document.getElementById('add-type-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-add]');
+    if (!btn) return;
+    document.querySelectorAll('#add-type-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('add-product-row').style.display = btn.dataset.add === 'product' ? 'block' : 'none';
+    document.getElementById('add-service-row').style.display = btn.dataset.add === 'service' ? 'block' : 'none';
+    document.getElementById('add-custom-row').style.display = btn.dataset.add === 'custom' ? 'block' : 'none';
+  });
+  document.getElementById('payment-type-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-pt]');
+    if (!btn) return;
+    document.querySelectorAll('#payment-type-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    togglePaymentFields(btn.dataset.pt);
+  });
+  document.getElementById('cash-type-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-ct]');
+    if (!btn) return;
+    document.querySelectorAll('#cash-type-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    const isOnline = btn.dataset.ct === 'online';
+    document.getElementById('online-method-field').style.display = isOnline ? 'block' : 'none';
+    document.getElementById('change-left-field').style.display = isOnline ? 'none' : 'block';
+    if (isOnline) document.getElementById('change-left-toggle').checked = false;
+    document.getElementById('change-left-details').style.display = (!isOnline && document.getElementById('change-left-toggle').checked) ? 'block' : 'none';
+  });
+  const changeLeftToggle = document.getElementById('change-left-toggle');
+  if (changeLeftToggle) {
+    changeLeftToggle.addEventListener('change', () => {
+      document.getElementById('change-left-details').style.display = changeLeftToggle.checked ? 'block' : 'none';
+    });
+  }
+
+  wireSearchCombo({
+    inputId: 'product-search', listId: 'product-suggestions', source: () => PRODUCT_GROUPS,
+    labelKey: 'name', keepLabel: true,
+    matchFn: (g, q) => g.search.includes(q),
+    subFn: g => `${descCount(g.variants.length)} · ${g.totalStock} in stock`,
+    onPick: id => pickItem('product', id),
+  });
+  wireSearchCombo({
+    inputId: 'service-search', listId: 'service-suggestions', source: () => SERVICES,
+    labelKey: 'name', keepLabel: true,
+    matchFn: (sv, q) => (sv.name + ' ' + (sv.variants || []).map(v => v.variant_name).join(' ')).toLowerCase().includes(q),
+    subFn: sv => (sv.variants && sv.variants.length) ? descCount(sv.variants.length) : `${money(sv.price)} TZS`,
+    onPick: id => pickItem('service', id),
+  });
+}
+
+function openSaleModal(existing = null) {
+  cart = existing ? existing.items.map(i => {
+    let minimumPrice = null;
+    if (i.item_type === 'product' && i.variant_id) {
+      const v = VARIANTS.find(x => x.id === i.variant_id);
+      minimumPrice = v && v.minimum_price ? Number(v.minimum_price) : null;
+    } else if (i.item_type === 'service' && i.service_id) {
+      const s = SERVICES.find(x => x.id === i.service_id);
+      minimumPrice = s && s.minimum_price ? Number(s.minimum_price) : null;
+    }
+    return {
+      item_type: i.item_type, variant_id: i.variant_id, service_id: i.service_id,
+      description: i.description, quantity: Number(i.quantity), unit_price: Number(i.unit_price),
+      minimum_price: minimumPrice,
+      materials: (i.materials || []).map(m => ({ variant_id: Number(m.variant_id), quantity: Number(m.quantity), display_name: m.display_name, unit: m.unit })),
+    };
+  }) : [];
+  editingSaleId = existing ? existing.id : null;
+  PICKED = { product: null, service: null };
+  PICK_OPEN = { product: false, service: false };
+
+  const modal = openModal({
+    title: existing ? `Edit sale ${existing.invoice_no}` : 'New Sale',
+    large: true,
+    bodyHtml: saleFormModalHtml(existing),
+    footHtml: `
+      <button class="btn btn-secondary" id="sale-cancel-btn">Cancel</button>
+      <button class="btn btn-primary" id="sale-save-btn">${existing ? 'Save changes' : 'Complete Sale'}</button>
+    `,
+  });
+  wireSaleModalEvents();
+  renderCart();
+
+  modal.querySelector('#sale-cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#sale-save-btn').addEventListener('click', () => submitSale());
+}
+
+/* ---------------------------- Minimum-price authorization ---------------------------- */
+
+function belowMinimumItems() {
+  return cart.filter(i => i.minimum_price && i.unit_price < i.minimum_price);
+}
+
+function openOverrideAuthModal(belowItems, onAuthorized) {
+  const modal = openModal({
+    title: 'Authorize below-minimum pricing',
+    bodyHtml: `
+      <p style="font-size:13.5px; color:var(--slate);">The following items are priced below their minimum selling price. As ${escapeHtml(CURRENT_USER.role_name)}, you can authorize this sale to proceed — it will be recorded in the activity log.</p>
+      <ul style="margin:14px 0; padding-left:18px; font-size:13px;">
+        ${belowItems.map(i => `<li><strong>${escapeHtml(i.description)}</strong> — priced at ${money(i.unit_price)}, minimum is ${money(i.minimum_price)}</li>`).join('')}
+      </ul>
+      <div class="field"><label>Reason for authorizing this</label><textarea id="override-reason" rows="2" placeholder="e.g. Bulk order discount approved by manager"></textarea></div>
+    `,
+    footHtml: `<button class="btn btn-secondary" id="override-cancel-btn">Cancel</button><button class="btn btn-danger" id="override-confirm-btn">Authorize &amp; Continue</button>`,
+  });
+  modal.querySelector('#override-cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#override-confirm-btn').addEventListener('click', () => {
+    const reason = document.getElementById('override-reason').value.trim();
+    if (!reason) { toast('Please give a reason for this authorization.', 'error'); return; }
+    closeModal();
+    onAuthorized(reason);
+  });
+}
+
+async function submitSale(overrideReason = null) {
+  if (!cart.length) { toast('Add at least one item to the sale.', 'error'); return; }
+
+  const belowItems = belowMinimumItems();
+  if (belowItems.length && !overrideReason) {
+    const canOverride = ['administrator'].includes(CURRENT_USER.role);
+    if (!canOverride) {
+      toast(`These items are below their minimum price: ${belowItems.map(i => i.description).join(', ')}. Ask a manager or administrator to authorize this sale.`, 'error');
+      return;
+    }
+    // Re-open the sale modal after the auth prompt is resolved, since
+    // openModal() replaces the current modal in the DOM.
+    openOverrideAuthModal(belowItems, (reason) => {
+      reopenSaleModalForSubmit();
+      submitSale(reason);
+    });
+    return;
+  }
+
+  const paymentTypeBtn = document.querySelector('#payment-type-toggle button.active');
+  const paymentType = paymentTypeBtn ? paymentTypeBtn.dataset.pt : 'cash';
+
+  const payload = {
+    items: cart.map(i => ({
+      item_type: i.item_type, variant_id: i.variant_id, service_id: i.service_id,
+      description: i.description, quantity: i.quantity, unit_price: i.unit_price,
+      materials: i.item_type === 'product' ? undefined : (i.materials || []).map(m => ({ variant_id: m.variant_id, quantity: m.quantity })),
+      override_min_price: !!(overrideReason && i.minimum_price && i.unit_price < i.minimum_price),
+      override_reason: overrideReason,
+    })),
+    discount_amount: Number(document.getElementById('sale-discount').value) || 0,
+    payment_type: paymentType,
+    sale_date: document.getElementById('sale-date').value,
+    note: document.getElementById('sale-note').value,
+  };
+
+  if (paymentType === 'cash') {
+    const cashType = document.querySelector('#cash-type-toggle button.active').dataset.ct;
+    if (cashType === 'cash') {
+      const cashMethod = PAYMENT_METHODS.find(pm => pm.slug === 'cash');
+      if (!cashMethod) { toast('No "Cash in Hand" payment method is configured. Check Settings > Payment Methods.', 'error'); return; }
+      payload.payment_method_id = cashMethod.id;
+      if (document.getElementById('change-left-toggle').checked) {
+        const changeAmount = Number(document.getElementById('change-left-amount').value) || 0;
+        const changeName = document.getElementById('change-left-name').value.trim();
+        if (changeAmount <= 0) { toast('Enter how much change the customer left behind.', 'error'); return; }
+        if (!changeName) { toast('Customer name is required when the customer leaves change.', 'error'); return; }
+        payload.customer_left_change = true;
+        payload.change_left_amount = changeAmount;
+        payload.change_left_customer_name = changeName;
+      }
+    } else {
+      payload.payment_method_id = document.getElementById('online-method-id').value;
+      if (!payload.payment_method_id) { toast('Choose which online method was used.', 'error'); return; }
+    }
+  } else {
+    payload.customer_name = document.getElementById('customer-name').value.trim();
+    payload.customer_phone = document.getElementById('customer-phone').value.trim();
+    payload.credit_deadline = document.getElementById('credit-deadline').value;
+  }
+
+  const btn = document.getElementById('sale-save-btn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Saving…'; }
+
+  try {
+    if (editingSaleId) {
+      payload.id = editingSaleId;
+      await api.put('api/sales.php', payload);
+      toast('Sale updated successfully.', 'success');
+    } else {
+      const result = await api.post('api/sales.php', payload);
+      toast(`Sale ${result.invoice_no} recorded successfully.`, 'success');
+    }
+    closeModal();
+    loadStats();
+    loadSalesTable();
+  } catch (e) {
+    toast(e.message, 'error');
+    const retryBtn = document.getElementById('sale-save-btn');
+    if (retryBtn) { retryBtn.disabled = false; retryBtn.textContent = editingSaleId ? 'Save changes' : 'Complete Sale'; }
+  }
+}
+
+/**
+ * The authorization prompt is itself a modal, so confirming it replaces
+ * the sale-builder modal in the DOM. This silently rebuilds the same
+ * sale-builder modal (same cart, same field values aren't needed since
+ * we already captured payment/discount before opening the prompt) so
+ * submitSale() has a #sale-save-btn to update while it finishes saving.
+ * Since we already read every field into local values before this point
+ * isn't quite true — simplest robust approach: just re-show a lightweight
+ * "Saving…" state instead of the full form.
+ */
+function reopenSaleModalForSubmit() {
+  openModal({
+    title: editingSaleId ? 'Saving changes…' : 'Completing sale…',
+    bodyHtml: `<div class="loading-row"><span class="spinner"></span> Please wait…</div>`,
+  });
+}
+
+/* ---------------------------- View / Edit / Delete ---------------------------- */
+
+/* Receipt layout: logo, shop details, then simple dashed-separator blocks. */
+function receiptHtml(s) {
+  const tzs = (n) => `TZS ${money(n)}`;
+  const when = new Date(String(s.created_at || s.sale_date).replace(' ', 'T'));
+  const dateStr = isNaN(when) ? fmtDate(s.sale_date) : when.toLocaleDateString('en-GB');
+  const timeStr = isNaN(when) ? '' : when.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' });
+  const isCredit = s.payment_type === 'credit';
+  const balance = Number(s.balance_due) || 0;
+  const row = (label, value, cls = '') => `<div class="rc-row ${cls}"><span>${label}</span><span class="rc-v">${value}</span></div>`;
+
+  const items = s.items.map((i, n) => `
+    <div class="rc-item">
+      <div class="rc-name">${n + 1}. ${escapeHtml(i.description)}</div>
+      <div class="rc-row"><span>${i.quantity} x ${tzs(i.unit_price)}</span><span class="rc-v">${tzs(Number(i.quantity) * Number(i.unit_price))}</span></div>
+    </div>`).join('');
+
+  const hasDiscount = Number(s.discount_amount) > 0;
+  const hasTax = Number(s.tax_amount) > 0;
+  const showSubtotal = hasDiscount || hasTax;
+
+  return `
+    <div class="receipt-box" id="receipt-content">
+      <img src="../assets/receipt-logo.png" class="rc-logo" alt="${escapeHtml(COMPANY.company_name || 'MABUMBATECH')}">
+      <div class="rc-tagline">${escapeHtml(COMPANY.company_tagline || 'Technology. Innovation. Solutions.')}</div>
+      <div class="rc-addr">
+        ${COMPANY.company_location ? escapeHtml(COMPANY.company_location) + '<br>' : ''}
+        ${escapeHtml(COMPANY.company_phone || '')}${COMPANY.company_email ? (COMPANY.company_phone ? ' | ' : '') + escapeHtml(COMPANY.company_email) : ''}
+      </div>
+
+      <hr class="rc-sep">
+      ${row('Receipt No.', escapeHtml(s.invoice_no))}
+      ${row('Date', dateStr)}
+      ${timeStr ? row('Time', timeStr) : ''}
+      ${row('Served by', escapeHtml(s.sold_by_name))}
+
+      <hr class="rc-sep">
+      ${items}
+
+      <hr class="rc-sep">
+      ${showSubtotal ? row('Subtotal', tzs(s.subtotal_amount)) : ''}
+      ${hasDiscount ? row('Discount', '-' + tzs(s.discount_amount)) : ''}
+      ${hasTax ? row('Tax', tzs(s.tax_amount)) : ''}
+      ${row('TOTAL', tzs(s.total_amount), 'rc-total')}
+      ${row('Payment', isCredit ? 'Credit' : escapeHtml(s.payment_method_name || 'Cash'))}
+      ${isCredit && Number(s.amount_paid) > 0 ? row('Paid so far', tzs(s.amount_paid)) : ''}
+      ${row('Status', isCredit && balance > 0 ? `<span class="rc-due">${tzs(balance)} DUE</span>` : 'PAID')}
+
+      ${(s.customer_name || s.customer_phone || (isCredit && s.credit_deadline)) ? `
+      <hr class="rc-sep">
+      ${s.customer_name ? row('Customer', escapeHtml(s.customer_name)) : ''}
+      ${s.customer_phone ? row('Phone', escapeHtml(s.customer_phone)) : ''}
+      ${isCredit && s.credit_deadline ? row('Pay by', fmtDate(s.credit_deadline)) : ''}` : ''}
+
+      <hr class="rc-sep">
+      <div class="rc-thanks">Thank you for choosing ${escapeHtml(COMPANY.company_name || 'MABUMBATECH')}!</div>
+    </div>`;
+}
+
+async function viewSale(id) {
+  try {
+    const s = await api.get('api/sales.php', { id });
+    openModal({
+      title: `Sale ${s.invoice_no}`,
+      bodyHtml: receiptHtml(s),
+      footHtml: `<button class="btn btn-secondary no-print" onclick="window.print()">Print receipt</button>`,
+    });
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function editSale(id) {
+  try {
+    const s = await api.get('api/sales.php', { id });
+    openSaleModal(s);
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+async function deleteSale(id, invoiceNo) {
+  const ok = await confirmDialog(`Delete sale ${invoiceNo}? This will restore any product stock it used. This cannot be undone.`, { confirmLabel: 'Delete sale' });
+  if (!ok) return;
+  try {
+    await api.del('api/sales.php', { id });
+    toast('Sale removed and stock restored.', 'success');
+    loadStats();
+    loadSalesTable();
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+/* ---------------------------- Customer left change ---------------------------- */
+
+function changeBadgeHtml(s) {
+  const left = Number(s.change_left_amount) || 0;
+  if (left <= 0) return '';
+  const outstanding = left - (Number(s.change_collected_amount) || 0);
+  if (outstanding <= 0.01) {
+    return `<div class="badge success" style="margin-top:4px;">Change collected</div>`;
+  }
+  return `<div class="badge warn" style="margin-top:4px;">Change left: ${money(outstanding)} TZS</div>`;
+}
+
+async function openCollectChangeModal(id) {
+  try {
+    const s = await api.get('api/sales.php', { id });
+    const outstanding = Number(s.change_left_amount) - Number(s.change_collected_amount);
+    const modal = openModal({
+      title: `Collect change — ${s.invoice_no}`,
+      bodyHtml: `
+        <p style="font-size:13.5px; color:var(--slate);">
+          ${escapeHtml(s.change_left_customer_name || s.customer_name || 'The customer')} left
+          <strong>${money(outstanding)} TZS</strong> in change on this sale. Record how much they're collecting now — all of it, or part.
+        </p>
+        <div class="field">
+          <label>Amount being collected now (TZS)</label>
+          <input type="number" id="collect-change-amount" min="0" max="${outstanding}" value="${outstanding}">
+        </div>
+        <div class="field"><label>Note (optional)</label><input type="text" id="collect-change-note" placeholder="e.g. collected in person"></div>
+      `,
+      footHtml: `<button class="btn btn-secondary" id="collect-change-cancel">Cancel</button><button class="btn btn-primary" id="collect-change-confirm">Save</button>`,
+    });
+    modal.querySelector('#collect-change-cancel').addEventListener('click', closeModal);
+    modal.querySelector('#collect-change-confirm').addEventListener('click', async () => {
+      const amount = Number(document.getElementById('collect-change-amount').value);
+      if (!amount || amount <= 0 || amount > outstanding + 0.01) { toast(`Enter an amount up to ${money(outstanding)} TZS.`, 'error'); return; }
+      try {
+        await api.put('api/sales.php', { id, action: 'collect_change', amount, note: document.getElementById('collect-change-note').value.trim() });
+        toast('Change collection recorded.', 'success');
+        closeModal();
+        loadSalesTable();
+      } catch (e) {
+        toast(e.message, 'error');
+      }
+    });
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+/* ---------------------------- Init ---------------------------- */
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Sales');
+
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  document.getElementById('new-sale-btn').addEventListener('click', () => openSaleModal());
+  document.getElementById('cash-audit-btn').addEventListener('click', () => openCashAuditModal());
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('search-input').addEventListener('input', debounceSalesReload);
+  document.getElementById('filter-start').addEventListener('change', loadSalesTable);
+  document.getElementById('filter-end').addEventListener('change', loadSalesTable);
+  document.getElementById('filter-clear').addEventListener('click', () => {
+    document.getElementById('search-input').value = '';
+    document.getElementById('filter-start').value = '';
+    document.getElementById('filter-end').value = '';
+    loadSalesTable();
+  });
+
+  try {
+    await preloadCatalogs();
+  } catch (e) {
+    toast('Could not load products/services catalog: ' + e.message, 'error');
+  }
+
+  loadStats();
+  loadSalesTable();
+});
+
+let searchDebounce;
+function debounceSalesReload() {
+  clearTimeout(searchDebounce);
+  searchDebounce = setTimeout(loadSalesTable, 300);
+}
+
+function exportAs(format) {
+  const params = { type: 'sales', format };
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) params.start = start;
+  if (end) params.end = end;
+  const qs = new URLSearchParams(params).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

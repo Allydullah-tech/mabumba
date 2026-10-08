@@ -1,0 +1,421 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Products</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .variant-row td{ background:#fafbfd; }
+  .desc-btn{ display:inline-flex; align-items:center; gap:6px; padding:6px 13px; border:1px solid var(--border); border-radius:9px; background:var(--white); font:600 12.5px 'Inter',sans-serif; color:var(--slate); cursor:pointer; transition:all .15s ease; white-space:nowrap; }
+  .desc-btn:hover{ border-color:var(--blue); color:var(--blue); background:var(--blue-pale); box-shadow:0 2px 8px rgba(22,163,74,0.14); }
+  .desc-btn .arrow{ transition:transform .15s ease; }
+  .desc-btn:hover .arrow{ transform:translateX(2px); }
+  .desc-summary{ display:flex; gap:10px; flex-wrap:wrap; margin-bottom:16px; }
+  .desc-summary .chip{ background:var(--blue-pale); border:1px solid var(--blue-pale-2); border-radius:10px; padding:8px 14px; font-size:12px; color:var(--slate-muted); font-weight:600; }
+  .desc-summary .chip b{ display:block; font-family:'Space Grotesk',sans-serif; font-size:16px; color:var(--slate); margin-top:2px; }
+  th.actions-col, td.actions-col{ text-align:right; }
+  .type-chip{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; background:var(--blue-pale); color:var(--blue); margin-right:4px; margin-bottom:3px; }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'products';
+let CURRENT_USER = null;
+let CATEGORIES = [];
+let SUPPLIERS = [];
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Products</h2><p>Each product can have multiple descriptions — e.g. "Pen" with Marshal, Obama, Maker — each priced and stocked separately.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-primary" id="add-product-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Add Product
+        </button>
+      </div>
+    </div>
+
+    <div class="metrics-row" id="totals-row">
+      <div class="metric-mini"><div class="label">Total products</div><div class="amount" id="stat-products">—</div></div>
+      <div class="metric-mini"><div class="label">Total descriptions</div><div class="amount" id="stat-variants">—</div></div>
+      <div class="metric-mini" id="buying-value-card"><div class="label">Total stock value (buying)</div><div class="amount" id="stat-buying-value">—</div></div>
+      <div class="metric-mini warn"><div class="label">Descriptions low on stock</div><div class="amount" id="stat-low-stock">—</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search by product or description name…">
+        </div>
+        <select class="filter-select" id="filter-category"><option value="">All categories</option></select>
+        <label class="checkbox-row"><input type="checkbox" id="filter-low-stock"> Low stock only</label>
+      </div>
+      <div class="table-wrap" id="products-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadCategories() {
+  CATEGORIES = await api.get('api/categories.php', { kind: 'product' });
+  const sel = document.getElementById('filter-category');
+  sel.innerHTML = '<option value="">All categories</option>' + CATEGORIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+}
+async function loadSuppliers() {
+  // Suppliers (and everything about what stock costs) are office-only.
+  if (!canSeeCosts()) return;
+  SUPPLIERS = await api.get('api/suppliers.php', { status: 'active' });
+}
+// Only the administrator (the office) sees buying prices and anything
+// else that reveals profit. Workers see selling prices and stock only.
+function canSeeCosts() { return CURRENT_USER && CURRENT_USER.role === 'administrator'; }
+
+/* Automatic status: a disabled item stays "disabled"; otherwise the status
+   follows stock — "out of stock" at zero, "low" at/below the reorder level. */
+function autoStatus(status, stock, reorder) {
+  if (status !== 'active') return { label: status, cls: 'neutral' };
+  stock = Number(stock); reorder = Number(reorder);
+  if (stock <= 0) return { label: 'out of stock', cls: 'danger' };
+  if (stock <= reorder) return { label: 'low', cls: 'warn' };
+  return { label: 'active', cls: 'success' };
+}
+function productAutoStatus(p) {
+  if (p.status !== 'active') return { label: p.status, cls: 'neutral' };
+  if (Number(p.variant_count) > 0 && Number(p.total_stock) <= 0) return { label: 'out of stock', cls: 'danger' };
+  if (Number(p.low_stock_variant_count) > 0) return { label: 'low', cls: 'warn' };
+  return { label: 'active', cls: 'success' };
+}
+
+function priceRangeLabel(p) {
+  if (!p.variant_count) return '—';
+  return p.min_selling_price === p.max_selling_price ? money(p.min_selling_price) : `${money(p.min_selling_price)} – ${money(p.max_selling_price)}`;
+}
+
+async function loadProducts() {
+  const wrap = document.getElementById('products-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const query = { status: 'active' };
+  const catId = document.getElementById('filter-category').value;
+  if (catId) query.category_id = catId;
+  if (document.getElementById('filter-low-stock').checked) query.low_stock = 1;
+  const q = document.getElementById('search-input').value.trim();
+  if (q) query.q = q;
+
+  try {
+    const rows = await api.get('api/products.php', query);
+
+    document.getElementById('stat-products').textContent = rows.length;
+    const totalVariants = rows.reduce((s, p) => s + Number(p.variant_count), 0);
+    const totalBuyingValue = rows.reduce((s, p) => s + Number(p.total_buying_value || 0), 0);
+    const totalLowStock = rows.reduce((s, p) => s + Number(p.low_stock_variant_count), 0);
+    document.getElementById('stat-variants').textContent = totalVariants;
+    if (canSeeCosts()) document.getElementById('stat-buying-value').textContent = money(totalBuyingValue);
+    document.getElementById('stat-low-stock').textContent = totalLowStock;
+
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No products found</div><p>Try adjusting your filters, or add your first product.</p></div>`; return; }
+    const canManage = ['administrator'].includes(CURRENT_USER.role);
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Product</th><th>Category</th><th>Description</th><th>Total stock</th><th>Price range</th><th>Status</th><th class="actions-col">Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(p => `<tr>
+              <td class="pname">${escapeHtml(p.name)}</td>
+              <td class="psub">${escapeHtml(p.category_name || '—')}</td>
+              <td><button class="desc-btn" title="View descriptions and stock" onclick="openVariantsModal(${p.id})">${Number(p.variant_count)} desc${Number(p.variant_count) === 1 ? '' : 's'} <span class="arrow">→</span></button></td>
+              <td><span class="badge ${p.low_stock_variant_count > 0 ? 'danger' : 'neutral'}">${p.total_stock}</span></td>
+              <td>${priceRangeLabel(p)}</td>
+              <td>${(() => { const st = productAutoStatus(p); return `<span class="badge ${st.cls}">${st.label}</span>`; })()}</td>
+              <td class="actions-col" style="white-space:nowrap;">
+                ${canManage ? `
+                <button class="btn-icon" title="Edit" onclick='editProduct(${p.id})'>
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg>
+                </button>
+                <button class="btn-icon" title="Archive" onclick='archiveProduct(${p.id}, "${escapeHtml(p.name)}")'>
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg>
+                </button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load products</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+/* ---------------------------- Add / Edit Product (parent) ---------------------------- */
+
+function productFormHtml(p = null) {
+  const catOptions = CATEGORIES.map(c => `<option value="${c.id}" ${p && p.category_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+  const supOptions = SUPPLIERS.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+
+  return `
+    <div class="field"><label>Product name</label><input type="text" id="f-name" value="${p ? escapeHtml(p.name) : ''}" placeholder="e.g. Pen" required></div>
+    <div class="field-row">
+      <div class="field"><label>Category</label><select id="f-category"><option value="">— None —</option>${catOptions}</select></div>
+      <div class="field"><label>Or type a new category</label><input type="text" id="f-category-new" placeholder="e.g. Stationery"></div>
+    </div>
+    <div class="field"><label>Notes (optional)</label><textarea id="f-description" rows="2">${p ? escapeHtml(p.description || '') : ''}</textarea></div>
+    ${p ? `<div class="field"><label>Status</label><select id="f-status"><option value="active" ${p.status==='active'?'selected':''}>Active</option><option value="disabled" ${p.status==='disabled'?'selected':''}>Disabled</option></select></div>` : `
+    <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;">
+    <p class="hint" style="margin:0 0 14px; font-weight:600; color:var(--slate);">First description</p>
+    <p class="hint" style="margin:-8px 0 14px;">Every product needs at least one description. If "Pen" only comes in one kind, just call it "Standard" — it'll display as "Pen — Standard". You can add more descriptions (Marshal, Obama, Maker…) afterwards by clicking the Description button on the product's row.</p>
+    <div class="field"><label>Description name</label><input type="text" id="fv-name" value="Standard" required></div>
+    <div class="field-row">
+      <div class="field"><label>Brand</label><input type="text" id="fv-brand"></div>
+      <div class="field"><label>Unit</label><input type="text" id="fv-unit" value="pcs"></div>
+    </div>
+    <div class="field"><label>Supplier</label><select id="fv-supplier"><option value="">— None —</option>${supOptions}</select></div>
+    <div class="field-row">
+      <div class="field"><label>Buying price (TZS)</label><input type="number" id="fv-buying" min="0" required></div>
+      <div class="field"><label>Selling price (TZS)</label><input type="number" id="fv-selling" min="0" required></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Minimum selling price (optional)</label><input type="number" id="fv-min-price" min="0"></div>
+      <div class="field"><label>Reorder level</label><input type="number" id="fv-reorder" min="0" value="5"></div>
+    </div>
+    <div class="field"><label>Opening stock quantity</label><input type="number" id="fv-stock" min="0" value="0"></div>
+    `}
+  `;
+}
+
+function openProductModal(p = null) {
+  const modal = openModal({
+    title: p ? `Edit "${p.name}"` : 'Add Product',
+    large: !p,
+    bodyHtml: productFormHtml(p),
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">${p ? 'Save changes' : 'Add Product'}</button>`,
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', () => saveProduct(p ? p.id : null));
+}
+
+async function saveProduct(id) {
+  const payload = {
+    name: document.getElementById('f-name').value.trim(),
+    category_id: document.getElementById('f-category').value,
+    category_name: document.getElementById('f-category-new').value.trim(),
+    description: document.getElementById('f-description').value.trim(),
+  };
+  const statusEl = document.getElementById('f-status');
+  if (statusEl) payload.status = statusEl.value;
+
+  if (!payload.name) { toast('Product name is required.', 'error'); return; }
+
+  if (!id) {
+    const variantName = document.getElementById('fv-name').value.trim() || 'Standard';
+    const buying = document.getElementById('fv-buying').value;
+    const selling = document.getElementById('fv-selling').value;
+    if (!buying || !selling) { toast('Buying and selling price are required for the first description.', 'error'); return; }
+    payload.first_variant = {
+      variant_name: variantName,
+      brand: document.getElementById('fv-brand').value.trim(),
+      unit: document.getElementById('fv-unit').value.trim() || 'pcs',
+      supplier_id: document.getElementById('fv-supplier').value,
+      buying_price: buying, selling_price: selling,
+      minimum_price: document.getElementById('fv-min-price').value,
+      reorder_level: document.getElementById('fv-reorder').value,
+      stock_quantity: document.getElementById('fv-stock').value,
+    };
+  }
+
+  try {
+    if (id) { payload.id = id; await api.put('api/products.php', payload); toast('Product updated.', 'success'); }
+    else { await api.post('api/products.php', payload); toast('Product added.', 'success'); }
+    closeModal();
+    await loadCategories();
+    loadProducts();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editProduct(id) {
+  try { const p = await api.get('api/products.php', { id }); openProductModal(p); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function archiveProduct(id, name) {
+  const ok = await confirmDialog(`Archive "${name}" and ALL its descriptions? It will no longer appear in Sales or Products lists.`, { confirmLabel: 'Archive' });
+  if (!ok) return;
+  try { await api.del('api/products.php', { id }); toast('Product archived.', 'success'); loadProducts(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---------------------------- Descriptions (variants) ---------------------------- */
+
+async function openVariantsModal(productId) {
+  let product, variants;
+  try {
+    product = await api.get('api/products.php', { id: productId });
+    variants = product.variants;
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  const canManage = ['administrator'].includes(CURRENT_USER.role);
+
+  const modal = openModal({
+    title: `Descriptions of "${product.name}"`,
+    large: true,
+    bodyHtml: `
+      <div class="desc-summary">
+        <div class="chip">Category<b>${escapeHtml(product.category_name || '—')}</b></div>
+        <div class="chip">Descriptions<b>${variants.length}</b></div>
+        <div class="chip">Total in stock<b>${variants.reduce((t, v) => t + Number(v.stock_quantity || 0), 0)}</b></div>
+      </div>
+      <div class="table-wrap" id="variants-table-wrap">${variantsTableHtml(variants, canManage)}</div>
+      ${canManage ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px;" id="add-variant-btn">+ Add Description</button>` : ''}
+    `,
+  });
+
+  if (canManage) {
+    modal.querySelector('#add-variant-btn').addEventListener('click', () => openVariantForm(productId, product.name, null));
+  }
+}
+
+function variantsTableHtml(variants, canManage) {
+  if (!variants.length) return `<div class="empty-state"><div class="t">No descriptions yet</div></div>`;
+  return `
+    <table>
+      <thead><tr><th>Description</th>${canSeeCosts() ? '<th>Buying</th>' : ''}<th>Selling</th><th>Min. price</th><th>Stock</th><th>Status</th>${canManage ? '<th class="actions-col">Actions</th>' : ''}</tr></thead>
+      <tbody>
+        ${variants.map(v => {
+          const low = Number(v.stock_quantity) <= Number(v.reorder_level);
+          return `<tr>
+            <td class="pname">${escapeHtml(v.variant_name)}</td>
+            ${canSeeCosts() ? `<td>${money(v.buying_price)}</td>` : ''}
+            <td>${money(v.selling_price)}</td>
+            <td class="psub">${v.minimum_price ? money(v.minimum_price) : '—'}</td>
+            <td><span class="badge ${low ? 'danger' : 'neutral'}">${v.stock_quantity} ${escapeHtml(v.unit)}</span></td>
+            <td>${(() => { const st = autoStatus(v.status, v.stock_quantity, v.reorder_level); return `<span class="badge ${st.cls}">${st.label}</span>`; })()}</td>
+            ${canManage ? `<td class="actions-col" style="white-space:nowrap;">
+              <button class="btn-icon" title="Edit" onclick='editVariantFromModal(${v.id})'><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg></button>
+              <button class="btn-icon" title="Archive" onclick='archiveVariant(${v.id}, ${v.product_id || 0})'><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button>
+            </td>` : ''}
+          </tr>`;
+        }).join('')}
+      </tbody>
+    </table>`;
+}
+
+function variantFormHtml(v = null) {
+  const supOptions = SUPPLIERS.map(s => `<option value="${s.id}" ${v && v.supplier_id === s.id ? 'selected' : ''}>${escapeHtml(s.name)}</option>`).join('');
+  return `
+    <div class="field"><label>Description name</label><input type="text" id="v-name" value="${v ? escapeHtml(v.variant_name) : ''}" placeholder="e.g. Marshal" required></div>
+    <div class="field-row">
+      <div class="field"><label>Brand</label><input type="text" id="v-brand" value="${v ? escapeHtml(v.brand || '') : ''}"></div>
+      <div class="field"><label>Unit</label><input type="text" id="v-unit" value="${v ? escapeHtml(v.unit || 'pcs') : 'pcs'}"></div>
+    </div>
+    <div class="field"><label>Supplier</label><select id="v-supplier"><option value="">— None —</option>${supOptions}</select></div>
+    <div class="field-row">
+      <div class="field"><label>Buying price (TZS)</label><input type="number" id="v-buying" min="0" value="${v ? v.buying_price : ''}" required></div>
+      <div class="field"><label>Selling price (TZS)</label><input type="number" id="v-selling" min="0" value="${v ? v.selling_price : ''}" required></div>
+    </div>
+    <div class="field-row">
+      <div class="field"><label>Minimum selling price (optional)</label><input type="number" id="v-min-price" min="0" value="${v && v.minimum_price ? v.minimum_price : ''}"></div>
+      <div class="field"><label>Reorder level</label><input type="number" id="v-reorder" min="0" value="${v ? v.reorder_level : 5}"></div>
+    </div>
+    <div class="field"><label>Stock quantity</label><input type="number" id="v-stock" min="0" value="${v ? v.stock_quantity : 0}"></div>
+    ${v ? `<div class="field"><label>Status</label><select id="v-status"><option value="active" ${v.status==='active'?'selected':''}>Active</option><option value="disabled" ${v.status==='disabled'?'selected':''}>Disabled</option></select></div>` : ''}
+  `;
+}
+
+function openVariantForm(productId, productName, variant) {
+  const modal = openModal({
+    title: variant ? `Edit description — ${productName}` : `Add description — ${productName}`,
+    bodyHtml: variantFormHtml(variant),
+    footHtml: `<button class="btn btn-secondary" id="v-cancel-btn">Cancel</button><button class="btn btn-primary" id="v-save-btn">${variant ? 'Save changes' : 'Add Description'}</button>`,
+  });
+  modal.querySelector('#v-cancel-btn').addEventListener('click', () => { closeModal(); openVariantsModal(productId); });
+  modal.querySelector('#v-save-btn').addEventListener('click', () => saveVariant(productId, variant ? variant.id : null));
+}
+
+async function saveVariant(productId, variantId) {
+  const payload = {
+    product_id: productId,
+    variant_name: document.getElementById('v-name').value.trim(),
+    brand: document.getElementById('v-brand').value.trim(),
+    unit: document.getElementById('v-unit').value.trim() || 'pcs',
+    supplier_id: document.getElementById('v-supplier').value,
+    buying_price: document.getElementById('v-buying').value,
+    selling_price: document.getElementById('v-selling').value,
+    minimum_price: document.getElementById('v-min-price').value,
+    reorder_level: document.getElementById('v-reorder').value,
+    stock_quantity: document.getElementById('v-stock').value,
+  };
+  const statusEl = document.getElementById('v-status');
+  if (statusEl) payload.status = statusEl.value;
+
+  if (!payload.variant_name || !payload.buying_price || !payload.selling_price) {
+    toast('Description name, buying price and selling price are required.', 'error'); return;
+  }
+
+  try {
+    if (variantId) { payload.id = variantId; await api.put('api/product_variants.php', payload); toast('Description updated.', 'success'); }
+    else { await api.post('api/product_variants.php', payload); toast('Description added.', 'success'); }
+    closeModal();
+    loadProducts();
+    openVariantsModal(productId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editVariantFromModal(variantId) {
+  try {
+    const v = await api.get('api/product_variants.php', { id: variantId });
+    openVariantForm(v.product_id, v.product_name, v);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function archiveVariant(variantId, productId) {
+  const ok = await confirmDialog('Archive this description? It will no longer be sellable.', { confirmLabel: 'Archive' });
+  if (!ok) return;
+  try {
+    await api.del('api/product_variants.php', { id: variantId });
+    toast('Description archived.', 'success');
+    loadProducts();
+    if (productId) openVariantsModal(productId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadProducts, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Products');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  const canManage = ['administrator'].includes(user.role);
+  if (!canManage) document.getElementById('add-product-btn').style.display = 'none';
+  if (!canSeeCosts()) document.getElementById('buying-value-card').remove();
+
+  document.getElementById('add-product-btn').addEventListener('click', () => openProductModal());
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('filter-category').addEventListener('change', loadProducts);
+  document.getElementById('filter-low-stock').addEventListener('change', loadProducts);
+
+  await Promise.all([loadCategories(), loadSuppliers()]);
+  loadProducts();
+});
+
+function exportAs(format) {
+  const qs = new URLSearchParams({ type: 'products', format }).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,191 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Suppliers</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'suppliers';
+let CURRENT_USER = null;
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Suppliers</h2><p>Who you buy stock from, and their purchase history.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-primary" id="add-supplier-btn">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add Supplier
+      </button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search suppliers…">
+        </div>
+      </div>
+      <div class="table-wrap" id="suppliers-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadSuppliers() {
+  const wrap = document.getElementById('suppliers-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const q = document.getElementById('search-input').value.trim();
+  try {
+    const rows = await api.get('api/suppliers.php', { status: 'active', ...(q ? { q } : {}) });
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No suppliers yet</div><p>Add your first supplier to start tracking purchases.</p></div>`; return; }
+    const canManage = ['administrator', 'manager', 'stock_manager'].includes(CURRENT_USER.role);
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Purchases</th><th>Total purchased</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(s => `<tr>
+              <td><div class="pname">${escapeHtml(s.name)}</div><div class="psub">${escapeHtml(s.email || '')}</div></td>
+              <td class="psub">${escapeHtml(s.phone || '—')}</td>
+              <td>${s.purchase_count}</td>
+              <td class="pname">${money(s.total_purchased)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn-icon" title="View" onclick="viewSupplier(${s.id})"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z"/><circle cx="10" cy="10" r="2.2"/></svg></button>
+                ${canManage ? `
+                <button class="btn-icon" title="Edit" onclick='editSupplier(${s.id})'><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg></button>
+                <button class="btn-icon" title="Archive" onclick='archiveSupplier(${s.id}, "${escapeHtml(s.name)}")'><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load suppliers</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function supplierFormHtml(s = null) {
+  return `
+    <div class="field"><label>Supplier name</label><input type="text" id="f-name" value="${s ? escapeHtml(s.name) : ''}" required></div>
+    <div class="field-row">
+      <div class="field"><label>Phone</label><input type="text" id="f-phone" value="${s ? escapeHtml(s.phone || '') : ''}"></div>
+      <div class="field"><label>Email</label><input type="text" id="f-email" value="${s ? escapeHtml(s.email || '') : ''}"></div>
+    </div>
+    <div class="field"><label>Address</label><input type="text" id="f-address" value="${s ? escapeHtml(s.address || '') : ''}"></div>
+    <div class="field"><label>Notes</label><textarea id="f-notes" rows="2">${s ? escapeHtml(s.notes || '') : ''}</textarea></div>
+    ${s ? `<div class="field"><label>Status</label><select id="f-status"><option value="active" ${s.status==='active'?'selected':''}>Active</option><option value="disabled" ${s.status==='disabled'?'selected':''}>Disabled</option></select></div>` : ''}
+  `;
+}
+
+function openSupplierModal(s = null) {
+  const modal = openModal({
+    title: s ? `Edit "${s.name}"` : 'Add Supplier',
+    bodyHtml: supplierFormHtml(s),
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">${s ? 'Save changes' : 'Add Supplier'}</button>`,
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', () => saveSupplier(s ? s.id : null));
+}
+
+async function saveSupplier(id) {
+  const payload = {
+    name: document.getElementById('f-name').value.trim(),
+    phone: document.getElementById('f-phone').value.trim(),
+    email: document.getElementById('f-email').value.trim(),
+    address: document.getElementById('f-address').value.trim(),
+    notes: document.getElementById('f-notes').value.trim(),
+  };
+  const statusEl = document.getElementById('f-status');
+  if (statusEl) payload.status = statusEl.value;
+  if (!payload.name) { toast('Supplier name is required.', 'error'); return; }
+
+  try {
+    if (id) { payload.id = id; await api.put('api/suppliers.php', payload); toast('Supplier updated.', 'success'); }
+    else { await api.post('api/suppliers.php', payload); toast('Supplier added.', 'success'); }
+    closeModal();
+    loadSuppliers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editSupplier(id) {
+  try { const s = await api.get('api/suppliers.php', { id }); openSupplierModal(s); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function archiveSupplier(id, name) {
+  const ok = await confirmDialog(`Archive "${name}"?`, { confirmLabel: 'Archive' });
+  if (!ok) return;
+  try { await api.del('api/suppliers.php', { id }); toast('Supplier archived.', 'success'); loadSuppliers(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+async function viewSupplier(id) {
+  try {
+    const s = await api.get('api/suppliers.php', { id });
+    openModal({
+      title: escapeHtml(s.name),
+      large: true,
+      bodyHtml: `
+        <div class="field-row" style="margin-bottom:18px;">
+          <div><div class="psub">Phone</div><div class="pname">${escapeHtml(s.phone || '—')}</div></div>
+          <div><div class="psub">Email</div><div class="pname">${escapeHtml(s.email || '—')}</div></div>
+        </div>
+        <div class="panel-head"><h3>Products supplied</h3></div>
+        <div class="table-wrap" style="margin-bottom:18px;">
+          <table>
+            <thead><tr><th>Product</th><th>Current stock</th></tr></thead>
+            <tbody>${s.products_supplied.length ? s.products_supplied.map(p => `<tr><td class="pname">${escapeHtml(p.display_name)}</td><td>${p.stock_quantity} ${escapeHtml(p.unit)}</td></tr>`).join('') : `<tr><td colspan="2" style="text-align:center; color:var(--slate-muted); padding:14px;">None yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+        <div class="panel-head"><h3>Recent purchases</h3></div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Product</th><th>Qty</th><th>Total cost</th></tr></thead>
+            <tbody>${s.purchases.length ? s.purchases.map(p => `<tr><td class="psub">${fmtDate(p.purchase_date)}</td><td class="pname">${escapeHtml(p.display_name)}</td><td>${p.quantity}</td><td>${money(p.total_cost)}</td></tr>`).join('') : `<tr><td colspan="4" style="text-align:center; color:var(--slate-muted); padding:14px;">None yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+      `,
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadSuppliers, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Suppliers');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  const canManage = ['administrator', 'manager', 'stock_manager'].includes(user.role);
+  if (!canManage) document.getElementById('add-supplier-btn').style.display = 'none';
+
+  document.getElementById('add-supplier-btn').addEventListener('click', () => openSupplierModal());
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  loadSuppliers();
+});
+
+function exportAs(format) {
+  const qs = new URLSearchParams({ type: 'suppliers', format }).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

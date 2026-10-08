@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Users</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'users';
+let CURRENT_USER = null;
+const ROLES = [
+  ['administrator', 'Administrator'], ['worker', 'Worker'],
+];
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Users</h2><p>Manage who can access the system, and what they can do.</p></div>
+      <button class="btn btn-primary" id="add-user-btn">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add User
+      </button>
+    </div>
+    <div class="panel">
+      <div class="table-wrap" id="users-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+const ROLE_LABELS = Object.fromEntries(ROLES);
+
+async function loadUsers() {
+  const wrap = document.getElementById('users-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  try {
+    const rows = await api.get('api/users.php');
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Username</th><th>Role</th><th>Status</th><th>Joined</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(u => `<tr>
+              <td class="pname">${escapeHtml(u.full_name)}</td>
+              <td class="psub">${escapeHtml(u.username)}</td>
+              <td><span class="badge blue">${escapeHtml(u.role_name)}</span></td>
+              <td><span class="badge ${u.status === 'active' ? 'success' : 'neutral'}">${u.status}</span></td>
+              <td class="psub">${fmtDate(u.created_at)}</td>
+              <td style="white-space:nowrap;">
+                <button class="btn-icon" title="Edit" onclick='editUser(${u.id})'><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg></button>
+                ${u.id !== CURRENT_USER.id ? `<button class="btn-icon" title="Delete" onclick='deleteUser(${u.id}, "${escapeHtml(u.full_name)}")'><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load users</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function userFormHtml(u = null) {
+  const roleOptions = ROLES.map(([slug, label]) => `<option value="${slug}" ${u && u.role === slug ? 'selected' : ''}>${label}</option>`).join('');
+  return `
+    <div class="field"><label>Full name</label><input type="text" id="f-name" value="${u ? escapeHtml(u.full_name) : ''}" required></div>
+    <div class="field"><label>Username</label><input type="text" id="f-username" value="${u ? escapeHtml(u.username) : ''}" ${u ? 'disabled' : ''} required></div>
+    <div class="field"><label>Role</label><select id="f-role">${roleOptions}</select></div>
+    ${u ? `<div class="field"><label>Status</label><select id="f-status"><option value="active" ${u.status==='active'?'selected':''}>Active</option><option value="disabled" ${u.status==='disabled'?'selected':''}>Disabled</option></select></div>` : ''}
+    <div class="field"><label>${u ? 'New password (leave blank to keep current)' : 'Password'}</label><input type="password" id="f-password" ${u ? '' : 'required'}></div>
+    ${!u ? `
+      <div class="field"><label>Security question (for password recovery)</label><input type="text" id="f-sq" placeholder="e.g. What is your favorite color?" required></div>
+      <div class="field"><label>Answer</label><input type="text" id="f-sa" required></div>
+    ` : ''}
+  `;
+}
+
+function openUserModal(u = null) {
+  const modal = openModal({
+    title: u ? `Edit "${u.full_name}"` : 'Add User',
+    bodyHtml: userFormHtml(u),
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">${u ? 'Save changes' : 'Add User'}</button>`,
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', () => saveUser(u ? u.id : null));
+}
+
+async function saveUser(id) {
+  const payload = { full_name: document.getElementById('f-name').value.trim(), role: document.getElementById('f-role').value };
+  const password = document.getElementById('f-password').value;
+  const statusEl = document.getElementById('f-status');
+  if (statusEl) payload.status = statusEl.value;
+
+  if (id) {
+    if (password) payload.password = password;
+  } else {
+    payload.username = document.getElementById('f-username').value.trim();
+    payload.password = password;
+    payload.security_question = document.getElementById('f-sq').value.trim();
+    payload.security_answer = document.getElementById('f-sa').value.trim();
+    if (!payload.username || !payload.password || !payload.security_question || !payload.security_answer) {
+      toast('All fields are required for a new user.', 'error'); return;
+    }
+  }
+  if (!payload.full_name) { toast('Full name is required.', 'error'); return; }
+
+  try {
+    if (id) { payload.id = id; await api.put('api/users.php', payload); toast('User updated.', 'success'); }
+    else { await api.post('api/users.php', payload); toast('User created.', 'success'); }
+    closeModal();
+    loadUsers();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editUser(id) {
+  const rows = await api.get('api/users.php');
+  const u = rows.find(r => r.id === id);
+  if (u) openUserModal(u);
+}
+async function deleteUser(id, name) {
+  const ok = await confirmDialog(`Delete user "${name}"? This cannot be undone.`, { confirmLabel: 'Delete' });
+  if (!ok) return;
+  try { await api.del('api/users.php', { id }); toast('User removed.', 'success'); loadUsers(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  if (user.role !== 'administrator') { document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="t">Administrators only</div></div>`; return; }
+  CURRENT_USER = user;
+  setPageTitle('Users');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+  document.getElementById('add-user-btn').addEventListener('click', () => openUserModal());
+  loadUsers();
+});
+</script>
+</body>
+</html>

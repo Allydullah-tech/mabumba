@@ -1,0 +1,235 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Damages</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'damages';
+let PRODUCTS = [];
+let CURRENT_USER = null;
+// Loss values are quantity x buying price, so only the administrator
+// (the office) sees them. Workers record losses and see what/why only.
+function canSeeCosts() { return CURRENT_USER && CURRENT_USER.role === 'administrator'; }
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Damages &amp; Losses</h2><p>Record damaged, expired, lost, or stolen stock — and losses on non-stock items like equipment.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-primary" id="add-damage-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Record Loss
+        </button>
+      </div>
+    </div>
+
+    <div class="hero-row" style="grid-template-columns:1fr 1fr;">
+      <div class="hero-card"><div class="label" id="stat-total-label">Total loss this period</div><div class="amount" id="stat-total">—</div><div class="delta" id="stat-count">—</div></div>
+      <div class="stat-card"><div class="top-row"><div class="label">Most common reason</div></div><div class="amount" id="stat-reason" style="font-size:16px;">—</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <input type="date" class="filter-select" id="filter-start">
+        <input type="date" class="filter-select" id="filter-end">
+        <button class="btn btn-secondary btn-sm" id="filter-clear">Clear</button>
+      </div>
+      <div class="table-wrap" id="damages-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadDamages() {
+  const wrap = document.getElementById('damages-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const query = {};
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) query.start = start;
+  if (end) query.end = end;
+
+  try {
+    const rows = await api.get('api/damages.php', { ...query, limit: 300 });
+    const showCost = canSeeCosts();
+    if (showCost) {
+      const total = rows.reduce((s, r) => s + Number(r.display_cost), 0);
+      document.getElementById('stat-total').innerHTML = `${money(total)} <span>TZS</span>`;
+    } else {
+      document.getElementById('stat-total-label').textContent = 'Loss entries this period';
+      document.getElementById('stat-total').textContent = rows.length;
+    }
+    document.getElementById('stat-count').textContent = `${rows.length} entr${rows.length === 1 ? 'y' : 'ies'}`;
+    const byReason = {};
+    rows.forEach(r => { byReason[r.reason] = (byReason[r.reason] || 0) + 1; });
+    const topReason = Object.entries(byReason).sort((a, b) => b[1] - a[1])[0];
+    document.getElementById('stat-reason').textContent = topReason ? `${topReason[0]} (${topReason[1]}x)` : '—';
+
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No losses recorded</div><p>Good news — nothing to show for this period.</p></div>`; return; }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Reason</th>${showCost ? '<th>Loss value</th>' : ''}<th>Date</th><th>By</th>${showCost ? '<th>Actions</th>' : ''}</tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+              <td class="pname">${escapeHtml(r.display_name || 'Unknown')}</td>
+              <td><span class="badge ${r.item_type === 'other' ? 'neutral' : 'blue'}">${r.item_type === 'other' ? 'Non-stock' : 'Product'}</span></td>
+              <td>${r.quantity ?? '—'}</td>
+              <td class="psub">${escapeHtml(r.reason)}</td>
+              ${showCost ? `<td class="pname" style="color:var(--danger);">${money(r.display_cost)}</td>` : ''}
+              <td class="psub">${fmtDate(r.damage_date)}</td>
+              <td class="psub">${escapeHtml(r.recorded_by_name)}</td>
+              ${showCost ? `<td><button class="btn-icon" title="Delete" onclick='deleteDamage(${r.id}, "${escapeHtml(r.display_name || '')}")'><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button></td>` : ''}
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load losses</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function damageFormHtml() {
+  return `
+    <div class="type-toggle" id="loss-type-toggle">
+      <button type="button" class="active" data-t="product">Stock item</button>
+      <button type="button" data-t="other">Non-stock item</button>
+    </div>
+    <div id="product-fields">
+      <div class="field" style="position:relative;">
+        <label>Product type</label>
+        <input type="text" id="f-product-search" placeholder="Search a product or type…" autocomplete="off">
+        <input type="hidden" id="f-variant-id">
+        <div class="suggestion-list" id="f-product-suggestions" style="position:absolute; top:100%; left:0; right:0; background:var(--white); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 24px rgba(15,25,60,0.14); max-height:200px; overflow-y:auto; z-index:60; display:none; margin-top:4px;"></div>
+      </div>
+      <div class="field"><label>Quantity lost</label><input type="number" id="f-qty" min="1" value="1"></div>
+    </div>
+    <div id="other-fields" style="display:none;">
+      <div class="field"><label>Item name</label><input type="text" id="f-item-name" placeholder="e.g. Office printer"></div>
+      <div class="field"><label>Estimated cost (TZS)</label><input type="number" id="f-manual-cost" min="0"></div>
+    </div>
+    <div class="field"><label>Reason</label>
+      <select id="f-reason">
+        <option>Damaged</option><option>Expired</option><option>Lost</option>
+        <option>Broken</option><option>Stolen</option><option>Other</option>
+      </select>
+    </div>
+    <div class="field"><label>Date</label><input type="date" id="f-date" value="${new Date().toISOString().slice(0,10)}"></div>
+  `;
+}
+
+function openDamageModal() {
+  const modal = openModal({
+    title: 'Record Loss',
+    bodyHtml: damageFormHtml(),
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">Record Loss</button>`,
+  });
+  modal.querySelector('#loss-type-toggle').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-t]');
+    if (!btn) return;
+    document.querySelectorAll('#loss-type-toggle button').forEach(b => b.classList.toggle('active', b === btn));
+    document.getElementById('product-fields').style.display = btn.dataset.t === 'product' ? 'block' : 'none';
+    document.getElementById('other-fields').style.display = btn.dataset.t === 'other' ? 'block' : 'none';
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', saveDamage);
+
+  const searchInput = modal.querySelector('#f-product-search');
+  const list = modal.querySelector('#f-product-suggestions');
+  searchInput.addEventListener('input', () => {
+    document.getElementById('f-variant-id').value = '';
+    const q = searchInput.value.trim().toLowerCase();
+    if (!q) { list.style.display = 'none'; return; }
+    const matches = PRODUCTS.filter(v => v.display_name.toLowerCase().includes(q)).slice(0, 8);
+    list.innerHTML = matches.length
+      ? matches.map(v => `<div class="suggestion-item" data-id="${v.id}" style="padding:9px 12px; font-size:13px; cursor:pointer; border-bottom:1px solid #f1f3f8;"><div style="font-weight:600;">${escapeHtml(v.display_name)}</div><div style="font-size:11.5px; color:var(--slate-muted);">${v.stock_quantity} ${escapeHtml(v.unit)} in stock</div></div>`).join('')
+      : `<div style="padding:12px; font-size:12.5px; color:var(--slate-muted); text-align:center;">No matches</div>`;
+    list.style.display = 'block';
+    list.querySelectorAll('[data-id]').forEach(el => el.addEventListener('click', () => {
+      const v = PRODUCTS.find(x => x.id === Number(el.dataset.id));
+      document.getElementById('f-variant-id').value = v.id;
+      searchInput.value = v.display_name;
+      list.style.display = 'none';
+    }));
+  });
+  document.addEventListener('click', (e) => { if (!e.target.closest('#product-fields')) list.style.display = 'none'; });
+}
+
+async function saveDamage() {
+  const type = document.querySelector('#loss-type-toggle button.active').dataset.t;
+  const payload = {
+    item_type: type,
+    reason: document.getElementById('f-reason').value,
+    damage_date: document.getElementById('f-date').value,
+  };
+  if (type === 'product') {
+    payload.variant_id = document.getElementById('f-variant-id').value;
+    payload.quantity = document.getElementById('f-qty').value;
+    if (!payload.variant_id) { toast('Search and choose a product type.', 'error'); return; }
+  } else {
+    payload.item_name = document.getElementById('f-item-name').value.trim();
+    payload.manual_cost = document.getElementById('f-manual-cost').value;
+    if (!payload.item_name) { toast('Enter the item name.', 'error'); return; }
+  }
+
+  try {
+    await api.post('api/damages.php', payload);
+    toast('Loss recorded.', 'success');
+    closeModal();
+    loadDamages();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function deleteDamage(id, name) {
+  const ok = await confirmDialog(`Delete this loss record for "${name}"? Stock will be restored if applicable.`, { confirmLabel: 'Delete' });
+  if (!ok) return;
+  try { await api.del('api/damages.php', { id }); toast('Loss record removed.', 'success'); loadDamages(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Damages & Losses');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  document.getElementById('add-damage-btn').addEventListener('click', () => openDamageModal());
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('filter-start').addEventListener('change', loadDamages);
+  document.getElementById('filter-end').addEventListener('change', loadDamages);
+  document.getElementById('filter-clear').addEventListener('click', () => {
+    document.getElementById('filter-start').value = ''; document.getElementById('filter-end').value = ''; loadDamages();
+  });
+
+  try { PRODUCTS = await api.get('api/product_variants.php', { names_only: 1, status: 'active' }); } catch (e) {}
+  loadDamages();
+});
+
+function exportAs(format) {
+  const params = { type: 'damages', format };
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) params.start = start;
+  if (end) params.end = end;
+  const qs = new URLSearchParams(params).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

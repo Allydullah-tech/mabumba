@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Services</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .variant-row td{ background:#fafbfd; }
+  .desc-btn{ display:inline-flex; align-items:center; gap:6px; padding:6px 13px; border:1px solid var(--border); border-radius:9px; background:var(--white); font:600 12.5px 'Inter',sans-serif; color:var(--slate); cursor:pointer; transition:all .15s ease; white-space:nowrap; }
+  .desc-btn:hover{ border-color:var(--blue); color:var(--blue); background:var(--blue-pale); box-shadow:0 2px 8px rgba(22,163,74,0.14); }
+  .desc-btn .arrow{ transition:transform .15s ease; }
+  .desc-btn:hover .arrow{ transform:translateX(2px); }
+  th.actions-col, td.actions-col{ text-align:right; }
+  .desc-card{ border:1px solid var(--border); border-radius:12px; background:#fbfdfb; padding:14px 16px 4px; margin-bottom:12px; }
+  .desc-card-head{ display:flex; align-items:center; justify-content:space-between; font-weight:700; font-size:12.5px; color:var(--slate); margin-bottom:10px; }
+  .type-chip{ display:inline-block; padding:2px 9px; border-radius:20px; font-size:11px; font-weight:600; background:var(--blue-pale); color:var(--blue); margin-right:4px; margin-bottom:3px; }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'services';
+let CURRENT_USER = null;
+let CATEGORIES = [];
+let NEW_DESCS = [];   // descriptions being typed into the Add Service form: { name, price, min }
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Services</h2><p>Pre-priced services in your catalog — Photocopy, Printing, Design work, and so on. A service can optionally have priced descriptions — e.g. "Printing" with Color and Black &amp; White. For one-off negotiated jobs, use "Custom service" directly on the Sales screen instead.</p></div>
+      <button class="btn btn-primary" id="add-service-btn">
+        <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+        Add Service
+      </button>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search services…">
+        </div>
+        <select class="filter-select" id="filter-category"><option value="">All categories</option></select>
+      </div>
+      <div class="table-wrap" id="services-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadCategories() {
+  CATEGORIES = await api.get('api/categories.php', { kind: 'service' });
+  const sel = document.getElementById('filter-category');
+  sel.innerHTML = '<option value="">All categories</option>' + CATEGORIES.map(c => `<option value="${c.id}">${escapeHtml(c.name)}</option>`).join('');
+}
+
+function servicePriceCell(s) {
+  // Prices live on the descriptions. Show one price, or the range if they differ.
+  if (Number(s.variant_count) > 0) {
+    const lo = Number(s.min_variant_price), hi = Number(s.max_variant_price);
+    return lo === hi ? money(lo) : `${money(lo)} – ${money(hi)}`;
+  }
+  // Older service with no descriptions yet: it still sells at its own base price.
+  return `${money(s.price)} <span class="psub">base</span>${s.minimum_price ? `<div class="psub">Min. ${money(s.minimum_price)}</div>` : ''}`;
+}
+
+async function loadServices() {
+  const wrap = document.getElementById('services-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const query = { status: 'active' };
+  const catId = document.getElementById('filter-category').value;
+  if (catId) query.category_id = catId;
+  const q = document.getElementById('search-input').value.trim();
+  if (q) query.q = q;
+
+  try {
+    const rows = await api.get('api/services.php', query);
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No services found</div><p>Add your first service offering.</p></div>`; return; }
+    const canManage = ['administrator'].includes(CURRENT_USER.role);
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Category</th><th>Description</th><th>Unit</th><th>Price</th><th>Status</th><th class="actions-col">Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(s => `<tr>
+              <td><div class="pname">${escapeHtml(s.name)}</div><div class="psub">${escapeHtml(s.description || '')}</div></td>
+              <td class="psub">${escapeHtml(s.category_name || '—')}</td>
+              <td><button class="desc-btn" title="View descriptions and prices" onclick="openServiceVariantsModal(${s.id})">${Number(s.variant_count)} desc${Number(s.variant_count) === 1 ? '' : 's'} <span class="arrow">→</span></button></td>
+              <td class="psub">${escapeHtml(s.unit)}</td>
+              <td class="pname">${servicePriceCell(s)}</td>
+              <td><span class="badge ${s.status === 'active' ? 'success' : 'neutral'}">${s.status}</span></td>
+              <td class="actions-col" style="white-space:nowrap;">
+                ${canManage ? `
+                <button class="btn-icon" title="Edit" onclick='editService(${s.id})'>
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg>
+                </button>
+                <button class="btn-icon" title="Archive" onclick='archiveService(${s.id}, "${escapeHtml(s.name)}")'>
+                  <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg>
+                </button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load services</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function serviceFormHtml(s = null) {
+  const catOptions = CATEGORIES.map(c => `<option value="${c.id}" ${s && s.category_id === c.id ? 'selected' : ''}>${escapeHtml(c.name)}</option>`).join('');
+  return `
+    <div class="field"><label>Service name</label><input type="text" id="f-name" value="${s ? escapeHtml(s.name) : ''}" placeholder="e.g. Printing" required></div>
+    <div class="field-row">
+      <div class="field"><label>Category</label><select id="f-category"><option value="">— None —</option>${catOptions}</select></div>
+      <div class="field"><label>Or type a new category</label><input type="text" id="f-category-new" placeholder="e.g. Printing"></div>
+    </div>
+    <div class="field"><label>Notes (optional)</label><textarea id="f-description" rows="2">${s ? escapeHtml(s.description || '') : ''}</textarea></div>
+    ${s ? `
+    <div class="field"><label>Unit</label><input type="text" id="f-unit" value="${escapeHtml(s.unit || 'job')}" placeholder="e.g. page, job, hour"></div>
+    ${(s.variants && s.variants.length) ? '' : `
+    <p class="hint">This service has no descriptions yet, so it sells at the price below. Add descriptions (each with its own price) with the Description button on the service's row.</p>
+    <div class="field-row">
+      <div class="field"><label>Price (TZS)</label><input type="number" id="f-price" min="0" value="${s.price}" required></div>
+      <div class="field"><label>Minimum price (optional)</label><input type="number" id="f-min-price" min="0" value="${s.minimum_price ? s.minimum_price : ''}"></div>
+    </div>`}
+    <div class="field"><label>Status</label><select id="f-status"><option value="active" ${s.status==='active'?'selected':''}>Active</option><option value="disabled" ${s.status==='disabled'?'selected':''}>Disabled</option></select></div>
+    <p class="hint">Prices belong to the service's descriptions — change them with the Description button on the service's row.</p>
+    ` : `
+    <hr style="border:none; border-top:1px solid var(--border); margin:18px 0;">
+    <p class="hint" style="margin:0 0 14px; font-weight:600; color:var(--slate);">Descriptions</p>
+    <p class="hint" style="margin:-8px 0 14px;">Every service needs at least one description, which holds its price. If "Photocopy" only comes in one kind, just call it "Standard" — it'll display as simply "Photocopy" everywhere. If it comes in several kinds (Color, Black &amp; White…), add one description for each with <b>+ Add description</b>. You can also add more later with the Description button on the service's row.</p>
+    <div class="field" style="max-width:240px;"><label>Unit</label><input type="text" id="f-unit" value="job" placeholder="e.g. page, job, hour"></div>
+    <div id="desc-rows"></div>
+    <button type="button" class="btn btn-secondary btn-sm" id="add-desc-btn">+ Add description</button>
+    `}
+  `;
+}
+
+function openServiceModal(s = null) {
+  const modal = openModal({
+    title: s ? `Edit "${s.name}"` : 'Add Service',
+    large: !s,
+    bodyHtml: serviceFormHtml(s),
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">${s ? 'Save changes' : 'Add Service'}</button>`,
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', () => saveService(s ? s.id : null));
+
+  if (!s) {
+    NEW_DESCS = [{ name: 'Standard', price: '', min: '' }];
+    renderDescRows();
+    modal.querySelector('#add-desc-btn').addEventListener('click', () => {
+      NEW_DESCS.push({ name: '', price: '', min: '' });
+      renderDescRows();
+      const names = document.querySelectorAll('#desc-rows .desc-name');
+      if (names.length) names[names.length - 1].focus();
+    });
+  }
+}
+
+/* ---- Descriptions typed into the Add Service form ---- */
+function renderDescRows() {
+  const box = document.getElementById('desc-rows');
+  if (!box) return;
+  box.innerHTML = NEW_DESCS.map((d, i) => `
+    <div class="desc-card">
+      <div class="desc-card-head">
+        <span>Description ${i + 1}</span>
+        ${NEW_DESCS.length > 1 ? `<button type="button" class="btn-icon" title="Remove this description" onclick="removeDescRow(${i})"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15"/></svg></button>` : ''}
+      </div>
+      <div class="field"><label>Description name</label><input type="text" class="desc-name" value="${escapeHtml(d.name)}" placeholder="e.g. Color" oninput="NEW_DESCS[${i}].name = this.value"></div>
+      <div class="field-row">
+        <div class="field"><label>Price (TZS)</label><input type="number" min="0" value="${escapeHtml(String(d.price))}" oninput="NEW_DESCS[${i}].price = this.value"></div>
+        <div class="field"><label>Minimum price (optional)</label><input type="number" min="0" value="${escapeHtml(String(d.min))}" oninput="NEW_DESCS[${i}].min = this.value"></div>
+      </div>
+    </div>`).join('');
+}
+function removeDescRow(i) { NEW_DESCS.splice(i, 1); renderDescRows(); }
+
+async function saveService(id) {
+  const payload = {
+    name: document.getElementById('f-name').value.trim(),
+    category_id: document.getElementById('f-category').value,
+    category_name: document.getElementById('f-category-new').value.trim(),
+    unit: document.getElementById('f-unit').value.trim() || 'job',
+    description: document.getElementById('f-description').value.trim(),
+  };
+  const statusEl = document.getElementById('f-status');
+  if (statusEl) payload.status = statusEl.value;
+  if (!payload.name) { toast('Service name is required.', 'error'); return; }
+
+  if (!id) {
+    // New service: its descriptions carry the prices.
+    if (!NEW_DESCS.length) { toast('Add at least one description with a price.', 'error'); return; }
+    const seen = new Set();
+    for (let i = 0; i < NEW_DESCS.length; i++) {
+      const d = NEW_DESCS[i];
+      const name = (d.name || '').trim() || (NEW_DESCS.length === 1 ? 'Standard' : '');
+      if (!name) { toast(`Give description ${i + 1} a name.`, 'error'); return; }
+      if (String(d.price).trim() === '') { toast(`Enter the price for "${name}".`, 'error'); return; }
+      if (seen.has(name.toLowerCase())) { toast(`Two descriptions are called "${name}". Give each its own name.`, 'error'); return; }
+      seen.add(name.toLowerCase());
+    }
+    payload.variants = NEW_DESCS.map(d => ({
+      variant_name: (d.name || '').trim() || 'Standard',
+      price: d.price,
+      minimum_price: d.min,
+    }));
+  } else {
+    // Editing: only an older service with no descriptions still shows a price here.
+    const priceEl = document.getElementById('f-price');
+    if (priceEl) {
+      if (priceEl.value === '') { toast('Price is required.', 'error'); return; }
+      payload.price = priceEl.value;
+      payload.minimum_price = document.getElementById('f-min-price').value;
+    }
+  }
+
+  try {
+    if (id) { payload.id = id; await api.put('api/services.php', payload); toast('Service updated.', 'success'); }
+    else { await api.post('api/services.php', payload); toast('Service added.', 'success'); }
+    closeModal();
+    await loadCategories();
+    loadServices();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editService(id) {
+  try { const s = await api.get('api/services.php', { id }); openServiceModal(s); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function archiveService(id, name) {
+  const ok = await confirmDialog(`Archive "${name}"? It will no longer appear in Sales or Services lists.`, { confirmLabel: 'Archive' });
+  if (!ok) return;
+  try { await api.del('api/services.php', { id }); toast('Service archived.', 'success'); loadServices(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+/* ---------------------------- Descriptions (service variants) ---------------------------- */
+
+async function openServiceVariantsModal(serviceId) {
+  let service;
+  try {
+    service = await api.get('api/services.php', { id: serviceId });
+  } catch (e) { toast(e.message, 'error'); return; }
+
+  const variants = service.variants || [];
+  const canManage = ['administrator'].includes(CURRENT_USER.role);
+
+  const modal = openModal({
+    title: `Descriptions of "${service.name}"`,
+    bodyHtml: `
+      <p class="hint" style="margin-top:0;">Optional priced descriptions for this service — e.g. "Color" and "Black &amp; White" for Printing. If none are added, the service just sells at its base price of ${money(service.price)}.</p>
+      <div class="table-wrap" id="service-variants-table-wrap">${serviceVariantsTableHtml(variants, canManage)}</div>
+      ${canManage ? `<button class="btn btn-secondary btn-sm" style="margin-top:14px;" id="add-svariant-btn">+ Add Description</button>` : ''}
+    `,
+  });
+
+  if (canManage) {
+    modal.querySelector('#add-svariant-btn').addEventListener('click', () => openServiceVariantForm(serviceId, service.name, null));
+  }
+}
+
+function serviceVariantsTableHtml(variants, canManage) {
+  if (!variants.length) return `<div class="empty-state"><div class="t">No descriptions yet</div><p>This service sells at its base price.</p></div>`;
+  return `
+    <table>
+      <thead><tr><th>Description</th><th>Price</th><th>Min. price</th><th>Status</th>${canManage ? '<th class="actions-col">Actions</th>' : ''}</tr></thead>
+      <tbody>
+        ${variants.map(v => `<tr>
+            <td class="pname">${escapeHtml(v.variant_name)}</td>
+            <td>${money(v.price)}</td>
+            <td class="psub">${v.minimum_price ? money(v.minimum_price) : '—'}</td>
+            <td><span class="badge ${v.status === 'active' ? 'success' : 'neutral'}">${v.status}</span></td>
+            ${canManage ? `<td class="actions-col" style="white-space:nowrap;">
+              <button class="btn-icon" title="Edit" onclick='editServiceVariantFromModal(${v.id})'><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M13.5 3.5 16.5 6.5 7 16H4v-3l9.5-9.5Z"/></svg></button>
+              <button class="btn-icon" title="Archive" onclick='archiveServiceVariant(${v.id}, ${v.service_id || 0})'><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button>
+            </td>` : ''}
+          </tr>`).join('')}
+      </tbody>
+    </table>`;
+}
+
+function serviceVariantFormHtml(v = null) {
+  return `
+    <div class="field"><label>Description name</label><input type="text" id="sv-name" value="${v ? escapeHtml(v.variant_name) : ''}" placeholder="e.g. Color" required></div>
+    <div class="field-row">
+      <div class="field"><label>Price (TZS)</label><input type="number" id="sv-price" min="0" value="${v ? v.price : ''}" required></div>
+      <div class="field"><label>Minimum price (optional)</label><input type="number" id="sv-min-price" min="0" value="${v && v.minimum_price ? v.minimum_price : ''}"></div>
+    </div>
+    ${v ? `<div class="field"><label>Status</label><select id="sv-status"><option value="active" ${v.status==='active'?'selected':''}>Active</option><option value="disabled" ${v.status==='disabled'?'selected':''}>Disabled</option></select></div>` : ''}
+  `;
+}
+
+function openServiceVariantForm(serviceId, serviceName, variant) {
+  const modal = openModal({
+    title: variant ? `Edit description — ${serviceName}` : `Add description — ${serviceName}`,
+    bodyHtml: serviceVariantFormHtml(variant),
+    footHtml: `<button class="btn btn-secondary" id="sv-cancel-btn">Cancel</button><button class="btn btn-primary" id="sv-save-btn">${variant ? 'Save changes' : 'Add Description'}</button>`,
+  });
+  modal.querySelector('#sv-cancel-btn').addEventListener('click', () => { closeModal(); openServiceVariantsModal(serviceId); });
+  modal.querySelector('#sv-save-btn').addEventListener('click', () => saveServiceVariant(serviceId, variant ? variant.id : null));
+}
+
+async function saveServiceVariant(serviceId, variantId) {
+  const payload = {
+    service_id: serviceId,
+    variant_name: document.getElementById('sv-name').value.trim(),
+    price: document.getElementById('sv-price').value,
+    minimum_price: document.getElementById('sv-min-price').value,
+  };
+  const statusEl = document.getElementById('sv-status');
+  if (statusEl) payload.status = statusEl.value;
+
+  if (!payload.variant_name || payload.price === '') {
+    toast('Description name and price are required.', 'error'); return;
+  }
+
+  try {
+    if (variantId) { payload.id = variantId; await api.put('api/service_variants.php', payload); toast('Description updated.', 'success'); }
+    else { await api.post('api/service_variants.php', payload); toast('Description added.', 'success'); }
+    closeModal();
+    loadServices();
+    openServiceVariantsModal(serviceId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function editServiceVariantFromModal(variantId) {
+  try {
+    const v = await api.get('api/service_variants.php', { id: variantId });
+    openServiceVariantForm(v.service_id, v.service_name, v);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function archiveServiceVariant(variantId, serviceId) {
+  const ok = await confirmDialog('Archive this description? It will no longer be sellable.', { confirmLabel: 'Archive' });
+  if (!ok) return;
+  try {
+    await api.del('api/service_variants.php', { id: variantId });
+    toast('Description archived.', 'success');
+    loadServices();
+    if (serviceId) openServiceVariantsModal(serviceId);
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadServices, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Services');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  const canManage = ['administrator'].includes(user.role);
+  if (!canManage) document.getElementById('add-service-btn').style.display = 'none';
+
+  document.getElementById('add-service-btn').addEventListener('click', () => openServiceModal());
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('filter-category').addEventListener('change', loadServices);
+
+  await loadCategories();
+  loadServices();
+});
+</script>
+</body>
+</html>

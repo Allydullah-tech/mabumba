@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Stock</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .search-combo{ position:relative; }
+  .suggestion-list{ position:absolute; top:100%; left:0; right:0; background:var(--white); border:1px solid var(--border); border-radius:8px; box-shadow:0 10px 24px rgba(15,25,60,0.14); max-height:200px; overflow-y:auto; z-index:60; display:none; margin-top:4px; }
+  .suggestion-list.open{ display:block; }
+  .suggestion-item{ padding:8px 10px; font-size:12.5px; cursor:pointer; border-bottom:1px solid #f1f3f8; }
+  .suggestion-item:hover{ background:#f1f4fa; }
+  .suggestion-item .n{ font-weight:600; }
+  .suggestion-item .s{ font-size:11px; color:var(--slate-muted); }
+
+  .receive-item-card{ border:1px solid var(--border); border-radius:10px; padding:14px 16px; margin-bottom:12px; background:#fafbfd; }
+  .receive-item-head{ display:flex; align-items:center; justify-content:space-between; gap:10px; margin-bottom:10px; }
+  .receive-item-head .step-no{ font-size:11.5px; font-weight:700; color:var(--slate-muted); }
+  .receive-mode-badge{ font-size:10.5px; font-weight:700; padding:3px 9px; border-radius:20px; letter-spacing:.2px; }
+  .receive-mode-badge.existing{ background:var(--blue-pale); color:var(--blue); }
+  .receive-mode-badge.new{ background:#fff3d6; color:#8a6300; }
+  .receive-grid{ display:grid; grid-template-columns:repeat(4, 1fr); gap:10px; margin-top:10px; }
+  .receive-grid .rf{ display:flex; flex-direction:column; gap:4px; }
+  .receive-grid .rf label{ font-size:11px; font-weight:600; color:var(--slate-muted); }
+  .receive-grid .rf input{ padding:7px 8px; font-size:12.5px; border:1px solid var(--border); border-radius:6px; width:100%; }
+  .receive-item-card .search-input-main{ width:100%; padding:8px 10px; font-size:13px; border:1px solid var(--border); border-radius:6px; }
+  .receive-item-foot{ display:flex; align-items:center; justify-content:space-between; margin-top:10px; }
+  @media (max-width: 900px){ .receive-grid{ grid-template-columns:repeat(2, 1fr); } }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script src="../js/purchase-order.js"></script>
+<script>
+window.CURRENT_PAGE = 'stock';
+let CURRENT_USER = null;
+let VARIANTS = [];
+let SUPPLIERS = [];
+let receiveRows = [];
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Stock</h2><p>Live stock value and a full history of every stock change, by type.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+        <button class="btn btn-secondary" id="purchase-order-btn" title="Choose what to buy and download a Purchase Order PDF">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M3 4h2l1.6 8.2a1 1 0 0 0 1 .8h6.8a1 1 0 0 0 1-.8L16.5 7H6"/><circle cx="8.5" cy="16" r="1.2"/><circle cx="14" cy="16" r="1.2"/></svg>
+          Purchase Order
+        </button>
+        <button class="btn btn-primary" id="receive-stock-btn">
+          <svg width="15" height="15" viewBox="0 0 16 16" fill="none"><path d="M8 3v10M3 8h10" stroke="white" stroke-width="1.8" stroke-linecap="round"/></svg>
+          Receive Stock
+        </button>
+      </div>
+    </div>
+
+    <div class="hero-row" id="stock-value-row" style="grid-template-columns:1fr 1fr 1fr;">
+      <div class="hero-card" id="gross-profit-card">
+        <div class="label">Expected gross profit</div>
+        <div class="amount" id="stat-gross-profit">—</div>
+        <div class="delta">If all current stock sells</div>
+      </div>
+      <div class="stat-card" id="buying-value-card"><div class="top-row"><div class="label">Total buying value</div></div><div class="amount" id="stat-buying">—</div></div>
+      <div class="stat-card"><div class="top-row"><div class="label">Total selling value</div></div><div class="amount" id="stat-selling">—</div></div>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric-mini"><div class="label">Total products</div><div class="amount" id="stat-products">—</div></div>
+      <div class="metric-mini"><div class="label">Total types</div><div class="amount" id="stat-variants">—</div></div>
+      <div class="metric-mini"><div class="label">Total stock quantity</div><div class="amount" id="stat-quantity">—</div></div>
+      <div class="metric-mini warn"><div class="label">Types low on stock</div><div class="amount" id="stat-low">—</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Filter by product or type name…">
+        </div>
+        <select class="filter-select" id="filter-type">
+          <option value="">All movement types</option>
+          <option value="purchase">Purchases</option>
+          <option value="sale">Sales</option>
+          <option value="damage">Damages</option>
+          <option value="adjustment">Adjustments</option>
+        </select>
+        <input type="date" class="filter-select" id="filter-start">
+        <input type="date" class="filter-select" id="filter-end">
+      </div>
+      <div class="table-wrap" id="movements-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadStockValue() {
+  const d = await api.get('api/dashboard.php', { period: 'today' });
+  if (canSeeCosts()) {
+    document.getElementById('stat-gross-profit').innerHTML = `${money(d.stock.expected_gross_profit)} <span>TZS</span>`;
+    document.getElementById('stat-buying').textContent = money(d.stock.buying_value);
+  }
+  document.getElementById('stat-selling').textContent = money(d.stock.selling_value);
+  document.getElementById('stat-products').textContent = d.stock.total_products;
+  document.getElementById('stat-variants').textContent = d.stock.total_variants;
+  document.getElementById('stat-quantity').textContent = money(d.stock.total_quantity);
+  document.getElementById('stat-low').textContent = d.low_stock_alerts.length;
+}
+
+// Only the administrator (the office) sees buying values and profit.
+function canSeeCosts() { return CURRENT_USER && CURRENT_USER.role === 'administrator'; }
+
+const MOVEMENT_LABELS = { purchase: ['Stock In', 'success'], sale: ['Sold', 'blue'], damage: ['Damage/Loss', 'danger'], adjustment: ['Adjustment', 'warn'] };
+
+async function loadMovements() {
+  const wrap = document.getElementById('movements-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const query = {};
+  const type = document.getElementById('filter-type').value;
+  if (type) query.movement_type = type;
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) query.start = start;
+  if (end) query.end = end;
+
+  try {
+    let rows = await api.get('api/stock_movements.php', { ...query, limit: 300 });
+    const q = document.getElementById('search-input').value.trim().toLowerCase();
+    if (q) rows = rows.filter(r => r.display_name.toLowerCase().includes(q));
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No stock movements found</div><p>Try a different filter or date range.</p></div>`; return; }
+
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Date</th><th>Product / Type</th><th>Type</th><th>Change</th><th>Note</th><th>By</th></tr></thead>
+        <tbody>
+          ${rows.map(r => {
+            const [label, cls] = MOVEMENT_LABELS[r.movement_type] || ['Unknown', 'neutral'];
+            const change = Number(r.quantity_change);
+            return `<tr>
+              <td class="psub">${new Date(r.created_at).toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</td>
+              <td class="pname">${escapeHtml(r.display_name)}</td>
+              <td><span class="badge ${cls}">${label}</span></td>
+              <td class="pname" style="color:${change >= 0 ? 'var(--success)' : 'var(--danger)'};">${change >= 0 ? '+' : ''}${change} ${escapeHtml(r.unit)}</td>
+              <td class="psub" style="max-width:220px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(r.note || '')}</td>
+              <td class="psub">${escapeHtml(r.recorded_by_name)}</td>
+            </tr>`;
+          }).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load stock movements</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+/* ---------------------------- Receive Stock modal ---------------------------- */
+/* A clear 2-step card per item: (1) find or name the product/type,
+   (2) fill in only the fields that apply — restocking an existing type
+   just needs a quantity (and prices only if they changed), while a
+   brand-new product/type also asks for category, unit, prices,
+   minimum price and reorder level. */
+
+function blankReceiveRow() {
+  return {
+    existingVariantId: null, searchText: '', productName: '', variantName: '',
+    category: '', unit: 'pcs', quantity: 1, buying_price: '', selling_price: '',
+    minimum_price: '', reorder_level: 5,
+  };
+}
+
+function receiveRowHtml(row, idx) {
+  const isExisting = !!row.existingVariantId;
+  const existing = isExisting ? VARIANTS.find(v => v.id === row.existingVariantId) : null;
+
+  return `
+    <div class="receive-item-card">
+      <div class="receive-item-head">
+        <span class="step-no">Item ${idx + 1}</span>
+        <span class="receive-mode-badge ${isExisting ? 'existing' : 'new'}">${isExisting ? 'Restocking existing type' : 'New product / type'}</span>
+      </div>
+
+      <div class="search-combo">
+        <input type="text" class="search-input-main" placeholder="Search an existing product type, or type a new product name…"
+               value="${escapeHtml(row.searchText || '')}"
+               oninput="onReceiveSearchInput(${idx}, this.value)" onfocus="onReceiveSearchInput(${idx}, this.value)">
+        <div class="suggestion-list" id="receive-suggestions-${idx}"></div>
+      </div>
+
+      ${isExisting ? `
+        <div class="receive-grid" style="grid-template-columns:repeat(3, 1fr);">
+          <div class="rf"><label>Quantity received</label><input type="number" min="1" value="${row.quantity}" oninput="receiveRows[${idx}].quantity=this.value"></div>
+          <div class="rf"><label>Buying price (optional — keeps current if blank)</label><input type="number" min="0" value="${row.buying_price}" placeholder="keep current" oninput="receiveRows[${idx}].buying_price=this.value"></div>
+          <div class="rf"><label>Selling price (optional — keeps current if blank)</label><input type="number" min="0" value="${row.selling_price}" placeholder="${existing ? money(existing.selling_price) : 'keep current'}" oninput="receiveRows[${idx}].selling_price=this.value"></div>
+        </div>
+      ` : `
+        <div class="receive-grid">
+          <div class="rf"><label>Product name</label><input type="text" placeholder="e.g. Pen" value="${escapeHtml(row.productName || '')}" oninput="receiveRows[${idx}].productName=this.value"></div>
+          <div class="rf"><label>Type (leave blank if just one kind)</label><input type="text" placeholder="e.g. Marshal" value="${escapeHtml(row.variantName || '')}" oninput="receiveRows[${idx}].variantName=this.value"></div>
+          <div class="rf"><label>Category (optional)</label><input type="text" placeholder="e.g. Stationery" value="${escapeHtml(row.category || '')}" oninput="receiveRows[${idx}].category=this.value"></div>
+          <div class="rf"><label>Unit</label><input type="text" placeholder="pcs" value="${escapeHtml(row.unit || 'pcs')}" oninput="receiveRows[${idx}].unit=this.value"></div>
+          <div class="rf"><label>Quantity received</label><input type="number" min="1" value="${row.quantity}" oninput="receiveRows[${idx}].quantity=this.value"></div>
+          <div class="rf"><label>Buying price (TZS) *</label><input type="number" min="0" value="${row.buying_price}" placeholder="required" oninput="receiveRows[${idx}].buying_price=this.value"></div>
+          <div class="rf"><label>Selling price (TZS) *</label><input type="number" min="0" value="${row.selling_price}" placeholder="required" oninput="receiveRows[${idx}].selling_price=this.value"></div>
+          <div class="rf"><label>Minimum price (optional)</label><input type="number" min="0" value="${row.minimum_price}" oninput="receiveRows[${idx}].minimum_price=this.value"></div>
+          <div class="rf"><label>Reorder level</label><input type="number" min="0" value="${row.reorder_level}" oninput="receiveRows[${idx}].reorder_level=this.value"></div>
+        </div>
+      `}
+
+      <div class="receive-item-foot">
+        <span class="psub">${isExisting ? `Currently ${existing ? existing.stock_quantity : 0} ${existing ? escapeHtml(existing.unit) : ''} in stock.` : 'This will create a new catalog entry.'}</span>
+        <button class="btn-icon" title="Remove item" onclick="removeReceiveRow(${idx})"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.8"><path d="M5 5l10 10M15 5 5 15"/></svg></button>
+      </div>
+    </div>`;
+}
+
+function renderReceiveRows() {
+  document.getElementById('receive-body').innerHTML = receiveRows.map((r, i) => receiveRowHtml(r, i)).join('');
+}
+
+function onReceiveSearchInput(idx, value) {
+  receiveRows[idx].searchText = value;
+  receiveRows[idx].existingVariantId = null; // typing again clears a previous pick
+  const list = document.getElementById(`receive-suggestions-${idx}`);
+  const q = value.trim().toLowerCase();
+  if (!q) { list.classList.remove('open'); return; }
+  const matches = VARIANTS.filter(v => v.display_name.toLowerCase().includes(q)).slice(0, 8);
+  list.innerHTML = matches.length
+    ? matches.map(v => `<div class="suggestion-item" data-idx="${idx}" data-id="${v.id}"><div class="n">${escapeHtml(v.display_name)}</div><div class="s">${v.stock_quantity} ${escapeHtml(v.unit)} in stock · ${money(v.selling_price)} TZS</div></div>`).join('')
+    : `<div class="suggestion-item" style="cursor:default;">No existing match — fill in the fields below to create it as new</div>`;
+  list.classList.add('open');
+  // Re-render only the fields, not the whole row, to avoid clobbering the open list — attach a one-time delegated handler instead.
+  list.querySelectorAll('.suggestion-item[data-id]').forEach(el => {
+    el.addEventListener('click', () => pickReceiveVariant(idx, Number(el.dataset.id)));
+  });
+}
+
+function pickReceiveVariant(idx, variantId) {
+  const v = VARIANTS.find(x => x.id === variantId);
+  if (!v) return;
+  receiveRows[idx].existingVariantId = v.id;
+  receiveRows[idx].searchText = v.display_name;
+  receiveRows[idx].productName = '';
+  receiveRows[idx].variantName = '';
+  renderReceiveRows();
+}
+
+function addReceiveRow() { receiveRows.push(blankReceiveRow()); renderReceiveRows(); }
+function removeReceiveRow(idx) { receiveRows.splice(idx, 1); if (!receiveRows.length) receiveRows.push(blankReceiveRow()); renderReceiveRows(); }
+
+function receiveSummaryLine() {
+  const restock = receiveRows.filter(r => r.existingVariantId).length;
+  const fresh = receiveRows.length - restock;
+  const parts = [];
+  if (restock) parts.push(`${restock} restock${restock === 1 ? '' : 's'}`);
+  if (fresh) parts.push(`${fresh} new item${fresh === 1 ? '' : 's'}`);
+  return parts.join(' · ') || 'No items yet';
+}
+
+function openReceiveModal() {
+  receiveRows = [blankReceiveRow()];
+  const supOptions = SUPPLIERS.map(s => `<option value="${s.id}">${escapeHtml(s.name)}</option>`).join('');
+
+  const modal = openModal({
+    title: 'Receive Stock',
+    large: true,
+    bodyHtml: `
+      <p class="hint" style="margin-top:0;">Step 1 — search for an existing product type to restock it, or type a new product name to add it to your catalog. Step 2 — fill in the quantity (and, for new items, its prices).</p>
+      <div class="field-row">
+        <div class="field"><label>Supplier (optional)</label><select id="r-supplier"><option value="">— None —</option>${supOptions}</select></div>
+        <div class="field"><label>Date received</label><input type="date" id="r-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      </div>
+      <div id="receive-body"></div>
+      <button class="btn btn-secondary btn-sm" style="margin-top:4px;" onclick="addReceiveRow()">+ Add another item</button>
+    `,
+    footHtml: `<span class="psub" id="receive-summary" style="margin-right:auto;">${receiveSummaryLine()}</span><button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">Save Stock</button>`,
+  });
+  renderReceiveRows();
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', submitReceiveStock);
+
+  document.addEventListener('click', function closeSuggestionsOnOutsideClick(e) {
+    if (!e.target.closest('.search-combo')) {
+      document.querySelectorAll('.suggestion-list').forEach(l => l.classList.remove('open'));
+    }
+  });
+}
+
+async function submitReceiveStock() {
+  const items = [];
+  const problems = [];
+
+  receiveRows.forEach((r, i) => {
+    const rowLabel = `Item ${i + 1}`;
+    if (r.existingVariantId) {
+      const v = VARIANTS.find(x => x.id === r.existingVariantId);
+      if (!r.quantity || Number(r.quantity) <= 0) { problems.push(`${rowLabel}: enter a valid quantity.`); return; }
+      items.push({
+        product_name: v.product_name, variant_name: v.variant_name, quantity: r.quantity,
+        buying_price: r.buying_price, selling_price: r.selling_price,
+      });
+    } else if (r.productName) {
+      if (!r.quantity || Number(r.quantity) <= 0) { problems.push(`${rowLabel}: enter a valid quantity.`); return; }
+      if (r.buying_price === '' || r.selling_price === '') { problems.push(`${rowLabel} ("${r.productName}"): buying and selling price are required for a new product/type.`); return; }
+      items.push({
+        product_name: r.productName, variant_name: r.variantName, quantity: r.quantity,
+        buying_price: r.buying_price, selling_price: r.selling_price,
+        category: r.category, unit: r.unit || 'pcs',
+        minimum_price: r.minimum_price, reorder_level: r.reorder_level,
+      });
+    }
+  });
+
+  if (problems.length) { toast(problems[0], 'error'); return; }
+  if (!items.length) { toast('Add at least one item.', 'error'); return; }
+
+  const btn = document.getElementById('save-btn');
+  btn.disabled = true; btn.textContent = 'Saving…';
+  try {
+    const result = await api.post('api/purchases.php', {
+      items, supplier_id: document.getElementById('r-supplier').value,
+      purchase_date: document.getElementById('r-date').value, source: 'manual',
+    });
+    toast(`Stock received: ${result.created} new type(s), ${result.updated} restocked.`, 'success');
+    closeModal();
+    loadStockValue();
+    loadMovements();
+    VARIANTS = await api.get('api/product_variants.php', { names_only: 1, status: 'active' });
+  } catch (e) {
+    toast(e.message, 'error');
+    btn.disabled = false; btn.textContent = 'Save Stock';
+  }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadMovements, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Stock');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  const canManage = ['administrator'].includes(user.role);
+  if (!canManage) document.getElementById('receive-stock-btn').style.display = 'none';
+  if (!canSeeCosts()) {
+    // Workers see selling value and stock counts only — no buying value, no profit.
+    document.getElementById('gross-profit-card').remove();
+    document.getElementById('buying-value-card').remove();
+    document.getElementById('stock-value-row').style.gridTemplateColumns = '1fr';
+  }
+
+  document.getElementById('receive-stock-btn').addEventListener('click', () => openReceiveModal());
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('purchase-order-btn').addEventListener('click', openPurchaseOrderModal);
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('filter-type').addEventListener('change', loadMovements);
+  document.getElementById('filter-start').addEventListener('change', loadMovements);
+  document.getElementById('filter-end').addEventListener('change', loadMovements);
+
+  try {
+    [VARIANTS, SUPPLIERS] = await Promise.all([
+      api.get('api/product_variants.php', { names_only: 1, status: 'active' }),
+      canSeeCosts() ? api.get('api/suppliers.php', { status: 'active' }) : Promise.resolve([]),
+    ]);
+  } catch (e) { /* non-fatal, receive modal will just show fewer options */ }
+
+  loadStockValue();
+  loadMovements();
+});
+
+function exportAs(format) {
+  const params = { type: 'stock_movements', format };
+  const movementType = document.getElementById('filter-type').value;
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (movementType) params.movement_type = movementType;
+  if (start) params.start = start;
+  if (end) params.end = end;
+  const qs = new URLSearchParams(params).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

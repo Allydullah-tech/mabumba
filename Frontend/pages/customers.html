@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Customers</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'customers';
+let CURRENT_USER = null;
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Customers</h2><p>Purchase history, spending, and outstanding balances.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search by name or phone…">
+        </div>
+      </div>
+      <div class="table-wrap" id="customers-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadCustomers() {
+  const wrap = document.getElementById('customers-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const q = document.getElementById('search-input').value.trim();
+  try {
+    const rows = await api.get('api/customers.php', q ? { q } : {});
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No customers yet</div><p>Customers appear automatically once you record a credit sale, or when a name/phone is given at checkout.</p></div>`; return; }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Name</th><th>Phone</th><th>Purchases</th><th>Total spent</th><th>Outstanding</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(c => `<tr>
+              <td class="pname">${escapeHtml(c.name || 'Unnamed')}</td>
+              <td class="psub">${escapeHtml(c.phone || '—')}</td>
+              <td>${c.total_purchases}</td>
+              <td class="pname">${money(c.total_spent)}</td>
+              <td class="${Number(c.total_outstanding) > 0 ? 'pname' : 'psub'}" style="${Number(c.total_outstanding) > 0 ? 'color:var(--danger);' : ''}">${money(c.total_outstanding)}</td>
+              <td><span class="badge ${c.status === 'restricted' ? 'danger' : 'success'}">${c.status === 'restricted' ? 'Restricted' : 'Active'}</span>${Number(c.overdue_count) > 0 ? ` <span class="badge warn">${c.overdue_count} overdue</span>` : ''}</td>
+              <td><button class="btn-icon" title="View" onclick="viewCustomer(${c.id})"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M2 10s3-6 8-6 8 6 8 6-3 6-8 6-8-6-8-6Z"/><circle cx="10" cy="10" r="2.2"/></svg></button></td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load customers</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+async function viewCustomer(id) {
+  try {
+    const data = await api.get('api/customers.php', { id });
+    const s = data.summary;
+    const canManage = ['administrator', 'manager'].includes(CURRENT_USER.role);
+
+    const modal = openModal({
+      title: escapeHtml(s.name || 'Customer'),
+      large: true,
+      bodyHtml: `
+        <div class="metrics-row" style="grid-template-columns:repeat(4,1fr); margin-bottom:20px;">
+          <div class="metric-mini"><div class="label">Total purchases</div><div class="amount">${s.total_purchases}</div></div>
+          <div class="metric-mini"><div class="label">Total spent</div><div class="amount">${money(s.total_spent)}</div></div>
+          <div class="metric-mini ${Number(s.total_outstanding) > 0 ? 'danger' : 'success'}"><div class="label">Outstanding</div><div class="amount">${money(s.total_outstanding)}</div></div>
+          <div class="metric-mini ${s.status === 'restricted' ? 'danger' : 'success'}"><div class="label">Status</div><div class="amount" style="font-size:14px;">${s.status === 'restricted' ? 'Restricted' : 'Active'}</div></div>
+        </div>
+        <div class="panel-head"><h3>Sales history</h3></div>
+        <div class="table-wrap" style="margin-bottom:18px;">
+          <table>
+            <thead><tr><th>Invoice</th><th>Date</th><th>Items</th><th>Amount</th><th>Payment</th></tr></thead>
+            <tbody>
+              ${data.sales.length ? data.sales.map(sale => `<tr>
+                <td class="pname">${escapeHtml(sale.invoice_no)}</td>
+                <td class="psub">${fmtDate(sale.sale_date)}</td>
+                <td class="psub" style="max-width:200px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(sale.items_summary || '')}</td>
+                <td>${money(sale.total_amount)}</td>
+                <td><span class="badge ${sale.payment_type === 'credit' ? 'credit' : 'cash'}">${sale.payment_type === 'credit' ? 'Credit' : 'Cash'}</span></td>
+              </tr>`).join('') : `<tr><td colspan="5" style="text-align:center; color:var(--slate-muted); padding:16px;">No sales yet.</td></tr>`}
+            </tbody>
+          </table>
+        </div>
+        ${canManage ? `
+          <div class="panel-head"><h3>Restriction override</h3></div>
+          <p class="hint" style="margin-top:-6px;">Customers are auto-restricted after 3 overdue debts. You can override that here.</p>
+          <div style="display:flex; gap:10px;">
+            ${s.status === 'restricted'
+              ? `<button class="btn btn-secondary" id="unrestrict-btn">Remove restriction</button>`
+              : `<button class="btn btn-danger" id="restrict-btn">Restrict this customer</button>`}
+          </div>
+        ` : ''}
+      `,
+    });
+
+    const restrictBtn = modal.querySelector('#restrict-btn');
+    if (restrictBtn) restrictBtn.addEventListener('click', async () => {
+      const ok = await confirmDialog(`Restrict ${s.name || 'this customer'} from future credit sales?`, { confirmLabel: 'Restrict' });
+      if (!ok) return;
+      try { await api.put('api/customers.php', { id, status: 'restricted' }); toast('Customer restricted.', 'success'); closeModal(); loadCustomers(); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+    const unrestrictBtn = modal.querySelector('#unrestrict-btn');
+    if (unrestrictBtn) unrestrictBtn.addEventListener('click', async () => {
+      try { await api.put('api/customers.php', { id, status: 'active' }); toast('Restriction removed.', 'success'); closeModal(); loadCustomers(); }
+      catch (e) { toast(e.message, 'error'); }
+    });
+  } catch (e) {
+    toast(e.message, 'error');
+  }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadCustomers, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Customers');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  loadCustomers();
+});
+
+function exportAs(format) {
+  const qs = new URLSearchParams({ type: 'customers', format }).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

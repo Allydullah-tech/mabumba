@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Settings</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  .settings-tabs{ display:flex; gap:6px; border-bottom:1px solid var(--border); margin-bottom:22px; }
+  .settings-tabs button{ padding:10px 16px; border:none; background:none; font-size:13.5px; font-weight:600; color:var(--slate-muted); cursor:pointer; border-bottom:2px solid transparent; }
+  .settings-tabs button.active{ color:var(--blue); border-bottom-color:var(--blue); }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'settings';
+let currentTab = 'company';
+
+function pageContentHtml() {
+  return `
+    <div class="page-header"><div><h2>Settings</h2><p>Company profile, invoicing, and system preferences.</p></div></div>
+    <div class="settings-tabs" id="tabs">
+      <button data-tab="company" class="active">Company Profile</button>
+      <button data-tab="finance">Invoicing &amp; Tax</button>
+      <button data-tab="payment-methods">Payment Methods</button>
+    </div>
+    <div id="tab-content"></div>
+  `;
+}
+
+async function loadSettings() { return api.get('api/settings.php'); }
+
+function companyTabHtml(s) {
+  return `
+    <div class="panel" style="max-width:640px;">
+      <div class="field"><label>Company name</label><input type="text" id="s-company_name" value="${escapeHtml(s.company_name || '')}"></div>
+      <div class="field"><label>Tagline</label><input type="text" id="s-company_tagline" value="${escapeHtml(s.company_tagline || '')}"></div>
+      <div class="field"><label>Location</label><input type="text" id="s-company_location" value="${escapeHtml(s.company_location || '')}"></div>
+      <div class="field-row">
+        <div class="field"><label>Phone</label><input type="text" id="s-company_phone" value="${escapeHtml(s.company_phone || '')}"></div>
+        <div class="field"><label>Email</label><input type="text" id="s-company_email" value="${escapeHtml(s.company_email || '')}"></div>
+      </div>
+      <button class="btn btn-primary" onclick="saveTab(['company_name','company_tagline','company_location','company_phone','company_email'])">Save Company Profile</button>
+    </div>
+  `;
+}
+
+function financeTabHtml(s) {
+  return `
+    <div class="panel" style="max-width:640px;">
+      <div class="field-row">
+        <div class="field"><label>Currency</label><input type="text" id="s-currency" value="${escapeHtml(s.currency || 'TZS')}"></div>
+        <div class="field"><label>Invoice prefix</label><input type="text" id="s-invoice_prefix" value="${escapeHtml(s.invoice_prefix || 'MBT')}"></div>
+      </div>
+      <div class="field-row">
+        <div class="field"><label>Default reorder level</label><input type="number" id="s-default_reorder_level" min="0" value="${s.default_reorder_level || 5}"></div>
+        <div class="field"><label>Tax rate (%)</label><input type="number" id="s-tax_rate" min="0" step="0.1" value="${s.tax_rate || 0}"></div>
+      </div>
+      <label class="checkbox-row" style="margin-bottom:18px;"><input type="checkbox" id="s-tax_enabled" ${s.tax_enabled === '1' ? 'checked' : ''}> Apply tax automatically on sales</label>
+      <button class="btn btn-primary" onclick="saveFinanceTab()">Save Invoicing &amp; Tax</button>
+    </div>
+  `;
+}
+
+function paymentMethodsTabHtml(methods) {
+  return `
+    <div class="panel">
+      <div class="toolbar">
+        <input type="text" class="filter-select" id="new-pm-name" placeholder="New payment method name" style="flex:1;">
+        <button class="btn btn-primary btn-sm" id="add-pm-btn">Add</button>
+      </div>
+      <div class="table-wrap">
+        <table>
+          <thead><tr><th>Name</th><th>Status</th><th>Actions</th></tr></thead>
+          <tbody>
+            ${methods.map(m => `<tr>
+                <td class="pname">${escapeHtml(m.name)}${m.is_system ? ' <span class="badge neutral">system</span>' : ''}</td>
+                <td><span class="badge ${m.status === 'active' ? 'success' : 'neutral'}">${m.status}</span></td>
+                <td style="white-space:nowrap;">
+                  <button class="btn btn-sm btn-secondary" onclick="togglePM(${m.id}, '${m.status === 'active' ? 'disabled' : 'active'}')">${m.status === 'active' ? 'Disable' : 'Enable'}</button>
+                  ${!m.is_system ? `<button class="btn-icon" title="Delete" onclick="deletePM(${m.id})"><svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.6"><path d="M4 6h12M8 6V4h4v2M6 6l1 10h6l1-10"/></svg></button>` : ''}
+                </td>
+              </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>
+  `;
+}
+
+async function saveTab(keys) {
+  const payload = {};
+  keys.forEach(k => { payload[k] = document.getElementById('s-' + k).value; });
+  try { await api.put('api/settings.php', payload); toast('Saved successfully.', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function saveFinanceTab() {
+  const payload = {
+    currency: document.getElementById('s-currency').value,
+    invoice_prefix: document.getElementById('s-invoice_prefix').value,
+    default_reorder_level: document.getElementById('s-default_reorder_level').value,
+    tax_rate: document.getElementById('s-tax_rate').value,
+    tax_enabled: document.getElementById('s-tax_enabled').checked ? '1' : '0',
+  };
+  try { await api.put('api/settings.php', payload); toast('Saved successfully.', 'success'); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+async function renderTab() {
+  const content = document.getElementById('tab-content');
+  content.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  try {
+    if (currentTab === 'company') content.innerHTML = companyTabHtml(await loadSettings());
+    else if (currentTab === 'finance') content.innerHTML = financeTabHtml(await loadSettings());
+    else {
+      const methods = await api.get('api/payment_methods.php');
+      content.innerHTML = paymentMethodsTabHtml(methods);
+      document.getElementById('add-pm-btn').addEventListener('click', addPM);
+    }
+  } catch (e) {
+    content.innerHTML = `<div class="empty-state"><div class="t">Could not load settings</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+async function addPM() {
+  const name = document.getElementById('new-pm-name').value.trim();
+  if (!name) return;
+  try { await api.post('api/payment_methods.php', { name }); toast('Payment method added.', 'success'); renderTab(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function togglePM(id, status) {
+  try { await api.put('api/payment_methods.php', { id, status }); renderTab(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+async function deletePM(id) {
+  const ok = await confirmDialog('Remove this payment method?', { confirmLabel: 'Remove' });
+  if (!ok) return;
+  try { await api.del('api/payment_methods.php', { id }); toast('Removed.', 'success'); renderTab(); }
+  catch (e) { toast(e.message, 'error'); }
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  if (user.role !== 'administrator') { document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="t">Administrators only</div></div>`; return; }
+  setPageTitle('Settings');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+  document.getElementById('tabs').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-tab]');
+    if (!btn) return;
+    currentTab = btn.dataset.tab;
+    document.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b === btn));
+    renderTab();
+  });
+  renderTab();
+});
+</script>
+</body>
+</html>

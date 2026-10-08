@@ -1,0 +1,190 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Payments &amp; Debts</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'debts';
+let PAYMENT_METHODS = [];
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Payments &amp; Debts</h2><p>Every credit sale, its balance, and repayment history.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+      </div>
+    </div>
+
+    <div id="overdue-banner" style="display:none; background:var(--danger-pale); border:1.5px solid #f3b9b9; border-radius:12px; padding:16px 20px; margin-bottom:18px;">
+      <div style="display:flex; align-items:center; gap:10px; margin-bottom:10px;">
+        <svg width="18" height="18" viewBox="0 0 20 20" fill="none" stroke="var(--danger)" stroke-width="1.8"><path d="M10 3 4 6v5c0 3.5 2.5 5.3 6 6 3.5-.7 6-2.5 6-6V6l-6-3Z"/><path d="M10 7v4M10 13.5v.1"/></svg>
+        <strong style="color:var(--danger); font-size:14px;">Overdue debts need attention</strong>
+      </div>
+      <div id="overdue-list" style="display:flex; flex-direction:column; gap:6px;"></div>
+    </div>
+
+    <div class="metrics-row">
+      <div class="metric-mini"><div class="label">Total credit sales</div><div class="amount" id="stat-total">—</div></div>
+      <div class="metric-mini danger"><div class="label">Overdue</div><div class="amount" id="stat-overdue">—</div></div>
+      <div class="metric-mini warn"><div class="label">Due today</div><div class="amount" id="stat-due-today">—</div></div>
+      <div class="metric-mini success"><div class="label">Fully paid</div><div class="amount" id="stat-paid">—</div></div>
+    </div>
+
+    <div class="panel">
+      <div class="toolbar">
+        <select class="filter-select" id="filter-status">
+          <option value="">All statuses</option>
+          <option value="pending">Pending</option>
+          <option value="overdue">Overdue</option>
+          <option value="paid">Paid</option>
+        </select>
+      </div>
+      <div class="table-wrap" id="debts-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadDebts() {
+  const wrap = document.getElementById('debts-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  try {
+    const all = await api.get('api/debts.php');
+    document.getElementById('stat-total').textContent = money(all.reduce((s, r) => s + Number(r.total_amount), 0));
+    document.getElementById('stat-overdue').textContent = money(all.filter(r => r.status === 'overdue').reduce((s, r) => s + Number(r.remaining), 0));
+    document.getElementById('stat-due-today').textContent = money(all.filter(r => r.status === 'pending' && r.credit_deadline === new Date().toISOString().slice(0,10)).reduce((s, r) => s + Number(r.remaining), 0));
+    document.getElementById('stat-paid').textContent = all.filter(r => r.status === 'paid').length;
+
+    const overdueList = all.filter(r => r.status === 'overdue').sort((a, b) => (a.credit_deadline || '').localeCompare(b.credit_deadline || ''));
+    const banner = document.getElementById('overdue-banner');
+    if (overdueList.length) {
+      banner.style.display = 'block';
+      document.getElementById('overdue-list').innerHTML = overdueList.map(r => `
+        <div style="display:flex; justify-content:space-between; align-items:center; background:var(--white); border-radius:8px; padding:9px 12px; font-size:13px;">
+          <div><strong>${escapeHtml(r.customer_name || 'Customer')}</strong> <span class="psub">— ${escapeHtml(r.invoice_no)} · was due ${fmtDate(r.credit_deadline)}</span></div>
+          <div style="display:flex; align-items:center; gap:12px;">
+            <span style="font-weight:700; color:var(--danger);">${money(r.remaining)} TZS</span>
+            <button class="btn btn-sm btn-primary" onclick="openPaymentModal(${r.id}, '${escapeHtml(r.invoice_no)}', ${r.remaining})">Record Payment</button>
+          </div>
+        </div>`).join('');
+    } else {
+      banner.style.display = 'none';
+    }
+
+    const statusFilter = document.getElementById('filter-status').value;
+    const rows = statusFilter ? all.filter(r => r.status === statusFilter) : all;
+
+    if (!rows.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No credit sales found</div><p>Nothing matches this filter.</p></div>`; return; }
+
+    const statusBadge = { pending: 'warn', overdue: 'danger', paid: 'success' };
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>Invoice</th><th>Customer</th><th>Items</th><th>Total</th><th>Paid</th><th>Remaining</th><th>Deadline</th><th>Status</th><th>Actions</th></tr></thead>
+        <tbody>
+          ${rows.map(r => `<tr>
+              <td class="pname">${escapeHtml(r.invoice_no)}</td>
+              <td>${escapeHtml(r.customer_name || '—')}<div class="psub">${escapeHtml(r.customer_phone || '')}</div></td>
+              <td class="psub" style="max-width:180px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(r.item_names || '')}</td>
+              <td>${money(r.total_amount)}</td>
+              <td class="psub">${money(r.paid_amount)}</td>
+              <td class="pname" style="color:${r.remaining > 0 ? 'var(--danger)' : 'var(--success)'};">${money(r.remaining)}</td>
+              <td class="psub">${fmtDate(r.credit_deadline)}</td>
+              <td><span class="badge ${statusBadge[r.status]}">${r.status}</span></td>
+              <td style="white-space:nowrap;">
+                <button class="btn-icon" title="History" onclick="viewDebtHistory(${r.id})"><svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="10" cy="10" r="7.5"/><path d="M10 6v4l3 2"/></svg></button>
+                ${r.remaining > 0 ? `<button class="btn btn-sm btn-primary" onclick="openPaymentModal(${r.id}, '${escapeHtml(r.invoice_no)}', ${r.remaining})">Record Payment</button>` : ''}
+              </td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load debts</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function openPaymentModal(saleId, invoiceNo, remaining) {
+  const pmOptions = PAYMENT_METHODS.map(pm => `<option value="${pm.id}">${escapeHtml(pm.name)}</option>`).join('');
+  const modal = openModal({
+    title: `Record Payment — ${invoiceNo}`,
+    bodyHtml: `
+      <p class="hint" style="margin-top:0;">Remaining balance: <strong>${money(remaining)} TZS</strong></p>
+      <div class="field"><label>Amount received (TZS)</label><input type="number" id="p-amount" min="1" max="${remaining}" value="${remaining}"></div>
+      <div class="field"><label>Payment method</label><select id="p-method">${pmOptions}</select></div>
+      <div class="field"><label>Date</label><input type="date" id="p-date" value="${new Date().toISOString().slice(0,10)}"></div>
+      <div class="field"><label>Note (optional)</label><input type="text" id="p-note"></div>
+    `,
+    footHtml: `<button class="btn btn-secondary" id="cancel-btn">Cancel</button><button class="btn btn-primary" id="save-btn">Record Payment</button>`,
+  });
+  modal.querySelector('#cancel-btn').addEventListener('click', closeModal);
+  modal.querySelector('#save-btn').addEventListener('click', async () => {
+    try {
+      const result = await api.post('api/debts.php', {
+        sale_id: saleId,
+        amount: document.getElementById('p-amount').value,
+        payment_method_id: document.getElementById('p-method').value,
+        payment_date: document.getElementById('p-date').value,
+        note: document.getElementById('p-note').value,
+      });
+      toast(result.remaining <= 0 ? 'Fully paid off!' : `Payment recorded. ${money(result.remaining)} still remaining.`, 'success');
+      closeModal();
+      loadDebts();
+    } catch (e) { toast(e.message, 'error'); }
+  });
+}
+
+async function viewDebtHistory(saleId) {
+  try {
+    const s = await api.get('api/debts.php', { history: saleId });
+    openModal({
+      title: `Payment history — ${s.invoice_no}`,
+      bodyHtml: `
+        <div class="field-row" style="margin-bottom:16px;">
+          <div><div class="psub">Total</div><div class="pname">${money(s.total_amount)}</div></div>
+          <div><div class="psub">Remaining</div><div class="pname" style="color:${s.remaining > 0 ? 'var(--danger)' : 'var(--success)'};">${money(s.remaining)}</div></div>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr><th>Date</th><th>Amount</th><th>Method</th><th>By</th></tr></thead>
+            <tbody>${s.payments.length ? s.payments.map(p => `<tr><td class="psub">${fmtDate(p.payment_date)}</td><td class="pname">${money(p.amount)}</td><td class="psub">${escapeHtml(p.method || '—')}</td><td class="psub">${escapeHtml(p.recorded_by_name)}</td></tr>`).join('') : `<tr><td colspan="4" style="text-align:center; color:var(--slate-muted); padding:14px;">No payments recorded yet.</td></tr>`}</tbody>
+          </table>
+        </div>
+      `,
+    });
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  setPageTitle('Payments & Debts');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+  document.getElementById('filter-status').addEventListener('change', loadDebts);
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  try { PAYMENT_METHODS = await api.get('api/payment_methods.php', { status: 'active' }); } catch (e) {}
+  loadDebts();
+});
+
+function exportAs(format) {
+  const qs = new URLSearchParams({ type: 'debts', format }).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>

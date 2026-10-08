@@ -1,0 +1,234 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Reports</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+<style>
+  /* Document-style report: clean headings and tables, not dashboard cards. */
+  .report-doc{ background:var(--white); border:1px solid var(--border); border-radius:var(--radius-lg); padding:0; overflow:hidden; }
+  .report-letterhead{ background:var(--ink-navy); color:white; padding:22px 28px; display:flex; align-items:center; gap:14px; }
+  .report-letterhead img{ height:46px; width:auto; }
+  .report-letterhead .name{ font-family:'Space Grotesk',sans-serif; font-weight:700; font-size:16px; }
+  .report-letterhead .tag{ font-size:11px; color:#a7e8bd; }
+  .report-letterhead .contact{ margin-left:auto; text-align:right; font-size:10.5px; color:#8fae9a; line-height:1.6; }
+  .report-body{ padding:28px 30px; }
+  .report-title{ font-family:'Space Grotesk',sans-serif; font-size:19px; font-weight:700; margin:0 0 4px; }
+  .report-meta-strip{ display:grid; grid-template-columns:repeat(3,1fr); gap:16px; background:#fafbfd; border:1px solid var(--border); border-radius:10px; padding:14px 18px; margin:16px 0 26px; }
+  .report-meta-strip .k{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.4px; color:var(--slate-muted); font-weight:700; margin-bottom:3px; }
+  .report-meta-strip .v{ font-size:13.5px; font-weight:600; color:var(--slate); }
+  .report-section{ margin-bottom:28px; }
+  .report-section h3{ font-family:'Space Grotesk',sans-serif; font-size:14px; font-weight:700; border-left:3px solid var(--blue); padding-left:10px; margin:0 0 12px; }
+  .kv-table{ width:100%; border-collapse:collapse; }
+  .kv-table tr td{ padding:8px 4px; font-size:13px; border-bottom:1px solid #f1f3f8; }
+  .kv-table tr td:first-child{ color:var(--slate-muted); }
+  .kv-table tr td:last-child{ text-align:right; font-weight:700; }
+  .kv-table tr.grand td{ font-size:15px; border-top:2px solid var(--slate); border-bottom:none; padding-top:12px; }
+  .signature-row{ display:grid; grid-template-columns:1fr 1fr; gap:40px; margin-top:10px; }
+  .signature-line{ border-top:1.4px solid var(--slate); margin-top:44px; padding-top:8px; font-size:12px; color:var(--slate-muted); }
+  .signature-line .label{ font-size:10.5px; text-transform:uppercase; letter-spacing:0.4px; font-weight:700; color:var(--slate); margin-bottom:22px; display:block; }
+</style>
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'reports';
+let currentPeriod = 'month';
+let COMPANY = {};
+let CURRENT_USER = null;
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Reports Center</h2><p>A full, printable business report for any period.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-csv-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M10 3v10m0 0-3-3m3 3 3-3M4 15v1a2 2 0 0 0 2 2h8a2 2 0 0 0 2-2v-1"/></svg>
+          CSV
+        </button>
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-primary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="white" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+      </div>
+    </div>
+
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="toolbar" style="margin-bottom:0;">
+        <div class="range-select" id="range-select">
+          ${[['today','Today'],['yesterday','Yesterday'],['week','This week'],['month','This month'],['year','This year'],['custom','Custom']].map(([k,l]) => `<button data-period="${k}" class="${k===currentPeriod?'active':''}">${l}</button>`).join('')}
+        </div>
+        <input type="date" class="filter-select" id="custom-start" style="display:none;">
+        <input type="date" class="filter-select" id="custom-end" style="display:none;">
+      </div>
+    </div>
+
+    <div id="report-content"><div class="loading-row"><span class="spinner"></span> Loading report…</div></div>
+  `;
+}
+
+function moneyLine(n) { return money(n) + ' TZS'; }
+
+function renderReport(r) {
+  const content = document.getElementById('report-content');
+  // Workers get a report without profit or cost-based figures (the server
+  // also removes them, this just keeps the layout clean).
+  const wv = !!r.worker_view;
+  const contact = [COMPANY.company_location, COMPANY.company_phone, COMPANY.company_email].filter(Boolean).join(' · ');
+
+  content.innerHTML = `
+    <div class="report-doc">
+      <div class="report-letterhead">
+        <img src="../assets/logo-sidebar.png" alt="MABUMBATECH logo">
+        <div>
+          <div class="name">${escapeHtml(COMPANY.company_name || 'MABUMBATECH')}</div>
+          <div class="tag">${escapeHtml(COMPANY.company_tagline || 'Technology. Innovation. Solutions.')}</div>
+        </div>
+        <div class="contact">${escapeHtml(contact)}</div>
+      </div>
+
+      <div class="report-body">
+        <div class="report-title">Business Report</div>
+        <p style="margin:0; font-size:12.5px; color:var(--slate-muted);">Covers every sale, expense, and stock loss recorded in the selected period.</p>
+
+        <div class="report-meta-strip">
+          <div><div class="k">Period</div><div class="v">${r.range.start} to ${r.range.end}</div></div>
+          <div><div class="k">Generated</div><div class="v">${new Date().toLocaleString('en-GB', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' })}</div></div>
+          <div><div class="k">Prepared by</div><div class="v">${escapeHtml(CURRENT_USER.full_name)}</div></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Summary</h3>
+          <table class="kv-table">
+            <tr><td>Total Sales</td><td>${moneyLine(r.sales.total_sales)}</td></tr>
+            <tr><td>Total Transactions</td><td>${r.sales.transactions}</td></tr>
+            ${wv ? '' : `<tr><td>Gross Profit</td><td>${moneyLine(r.sales.total_profit)}</td></tr>`}
+            <tr><td>Total Expenses</td><td>${moneyLine(r.expenses.total_expenses)}</td></tr>
+            ${wv ? '' : `<tr><td>Total Damage / Loss</td><td>${moneyLine(r.damages.total_loss)}</td></tr>`}
+            <tr><td>Product Revenue</td><td>${moneyLine(r.revenue_split.product_revenue)}</td></tr>
+            <tr><td>Service Revenue</td><td>${moneyLine(r.revenue_split.service_revenue)}</td></tr>
+            <tr><td>Discounts Given</td><td>${moneyLine(r.sales.total_discount)}</td></tr>
+            ${wv ? '' : `<tr class="grand"><td>Net Profit</td><td style="color:${r.net_profit >= 0 ? 'var(--success)' : 'var(--danger)'};">${moneyLine(r.net_profit)}</td></tr>`}
+          </table>
+        </div>
+
+        <div class="report-section">
+          <h3>Top Selling Items</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Revenue</th>${wv ? '' : '<th>Profit</th>'}</tr></thead>
+            <tbody>${r.top_selling.length ? r.top_selling.map(i => `<tr><td class="pname">${escapeHtml(i.name)}</td><td class="psub">${escapeHtml(i.item_type)}</td><td>${i.qty_sold}</td><td>${money(i.revenue)}</td>${wv ? '' : `<td>${money(i.profit)}</td>`}</tr>`).join('') : `<tr><td colspan="${wv ? 4 : 5}" style="text-align:center; color:var(--slate-muted); padding:16px;">No sales in this period.</td></tr>`}</tbody>
+          </table></div>
+        </div>
+
+        ${wv ? '' : `
+        <div class="report-section">
+          <h3>Most Profitable Items</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th>Type</th><th>Qty</th><th>Revenue</th><th>Profit</th></tr></thead>
+            <tbody>${r.most_profitable.length ? r.most_profitable.map(i => `<tr><td class="pname">${escapeHtml(i.name)}</td><td class="psub">${escapeHtml(i.item_type)}</td><td>${i.qty_sold}</td><td>${money(i.revenue)}</td><td style="color:var(--success);">${money(i.profit)}</td></tr>`).join('') : '<tr><td colspan="5" style="text-align:center; color:var(--slate-muted); padding:16px;">No sales in this period.</td></tr>'}</tbody>
+          </table></div>
+        </div>
+        `}
+
+        <div class="report-section">
+          <h3>Expense Breakdown</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Category</th><th>Amount</th></tr></thead>
+            <tbody>${r.expense_breakdown.length ? r.expense_breakdown.map(e => `<tr><td class="pname">${escapeHtml(e.category)}</td><td>${money(e.total)}</td></tr>`).join('') : '<tr><td colspan="2" style="text-align:center; color:var(--slate-muted); padding:16px;">No expenses in this period.</td></tr>'}</tbody>
+          </table></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Payment Method Breakdown</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Method</th><th>Count</th><th>Total</th></tr></thead>
+            <tbody>${r.payment_breakdown.length ? r.payment_breakdown.map(p => `<tr><td class="pname">${escapeHtml(p.method || 'Unspecified')}</td><td>${p.count}</td><td>${money(p.total)}</td></tr>`).join('') : '<tr><td colspan="3" style="text-align:center; color:var(--slate-muted); padding:16px;">No sales in this period.</td></tr>'}</tbody>
+          </table></div>
+        </div>
+
+        <div class="report-section">
+          <h3>Damages &amp; Losses</h3>
+          <div class="table-wrap"><table>
+            <thead><tr><th>Item</th><th>Qty</th><th>Reason</th>${wv ? '' : '<th>Loss value</th>'}<th>Date</th></tr></thead>
+            <tbody>${r.damage_list.length ? r.damage_list.map(d => `<tr><td class="pname">${escapeHtml(d.product_name || 'Unknown')}</td><td>${d.quantity ?? '—'}</td><td class="psub">${escapeHtml(d.reason)}</td>${wv ? '' : `<td style="color:var(--danger);">${money(d.loss_value)}</td>`}<td class="psub">${fmtDate(d.damage_date)}</td></tr>`).join('') : `<tr><td colspan="${wv ? 4 : 5}" style="text-align:center; color:var(--slate-muted); padding:16px;">No losses in this period.</td></tr>`}</tbody>
+          </table></div>
+        </div>
+
+        <div class="report-section" style="margin-bottom:6px;">
+          <h3>Sign-off</h3>
+          <div class="signature-row">
+            <div class="signature-line"><span class="label">Prepared By</span>${escapeHtml(CURRENT_USER.full_name)}</div>
+            <div class="signature-line"><span class="label">Approved By</span>&nbsp;</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  `;
+}
+
+function buildQuery() {
+  const query = { period: currentPeriod };
+  if (currentPeriod === 'custom') {
+    query.date = document.getElementById('custom-start').value;
+    query.end = document.getElementById('custom-end').value;
+  }
+  return query;
+}
+
+async function loadReport() {
+  const content = document.getElementById('report-content');
+  content.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading report…</div>`;
+  try {
+    const r = await api.get('api/reports.php', buildQuery());
+    renderReport(r);
+  } catch (e) {
+    content.innerHTML = `<div class="empty-state"><div class="t">Could not load report</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+function exportAs(format) {
+  const query = { ...buildQuery(), format };
+  const qs = new URLSearchParams(query).toString();
+  window.open(`../../Backend/api/reports.php?${qs}`, '_blank');
+}
+
+initShell().then(async (user) => {
+  if (!user) return;
+  CURRENT_USER = user;
+  setPageTitle('Reports Center');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  try { COMPANY = await api.get('api/settings.php'); } catch (e) {}
+
+  document.getElementById('range-select').addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-period]');
+    if (!btn) return;
+    currentPeriod = btn.dataset.period;
+    document.querySelectorAll('#range-select button').forEach(b => b.classList.toggle('active', b === btn));
+    const isCustom = currentPeriod === 'custom';
+    document.getElementById('custom-start').style.display = isCustom ? 'inline-block' : 'none';
+    document.getElementById('custom-end').style.display = isCustom ? 'inline-block' : 'none';
+    if (!isCustom) loadReport();
+  });
+  document.getElementById('custom-start').addEventListener('change', loadReport);
+  document.getElementById('custom-end').addEventListener('change', loadReport);
+
+  document.getElementById('export-csv-btn').addEventListener('click', () => exportAs('csv'));
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+
+  loadReport();
+});
+</script>
+</body>
+</html>

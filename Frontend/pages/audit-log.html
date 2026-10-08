@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>MABUMBATECH — Activity Log</title>
+<link rel="icon" href="../assets/logo-icon.png">
+<link rel="stylesheet" href="../css/style.css">
+</head>
+<body>
+<div class="app-shell" id="app-shell-mount"></div>
+
+<script>window.FRONTEND_BASE = "../"; window.API_BASE = "../../Backend";</script>
+<script src="../js/api.js"></script>
+<script src="../js/shell.js"></script>
+<script>
+window.CURRENT_PAGE = 'audit';
+
+const ACTION_BADGE = { create: 'success', update: 'blue', delete: 'danger', payment: 'warn', login: 'neutral' };
+
+function pageContentHtml() {
+  return `
+    <div class="page-header">
+      <div><h2>Activity Log</h2><p>Every important action taken in the system, for accountability.</p></div>
+      <div style="display:flex; gap:10px;">
+        <button class="btn btn-secondary" id="export-xlsx-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h2m2 0h2M7 10.5h2m2 0h2M7 14h2m2 0h2"/></svg>
+          Excel
+        </button>
+        <button class="btn btn-secondary" id="export-pdf-btn">
+          <svg width="15" height="15" viewBox="0 0 20 20" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="4" y="2.5" width="12" height="15" rx="1.4"/><path d="M7 7h6M7 10.5h6M7 14h3.5"/></svg>
+          PDF
+        </button>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="toolbar">
+        <div class="search-box">
+          <svg width="14" height="14" viewBox="0 0 20 20" fill="none" stroke="var(--slate-muted)" stroke-width="1.7"><circle cx="9" cy="9" r="6"/><path d="M17 17l-4-4"/></svg>
+          <input type="text" id="search-input" placeholder="Search description, user, module…">
+        </div>
+        <select class="filter-select" id="filter-user"><option value="">All users</option></select>
+        <select class="filter-select" id="filter-action">
+          <option value="">All actions</option>
+          <option value="create">Create</option><option value="update">Update</option>
+          <option value="delete">Delete</option><option value="payment">Payment</option><option value="login">Login</option>
+        </select>
+        <input type="date" class="filter-select" id="filter-start">
+        <input type="date" class="filter-select" id="filter-end">
+      </div>
+      <div class="table-wrap" id="log-table-wrap"><div class="loading-row"><span class="spinner"></span> Loading…</div></div>
+    </div>
+  `;
+}
+
+async function loadLog() {
+  const wrap = document.getElementById('log-table-wrap');
+  wrap.innerHTML = `<div class="loading-row"><span class="spinner"></span> Loading…</div>`;
+  const query = {};
+  const q = document.getElementById('search-input').value.trim();
+  const userId = document.getElementById('filter-user').value;
+  const action = document.getElementById('filter-action').value;
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (q) query.q = q;
+  if (userId) query.user_id = userId;
+  if (action) query.action = action;
+  if (start) query.start = start;
+  if (end) query.end = end;
+
+  try {
+    const data = await api.get('api/audit_log.php', query);
+    const userSel = document.getElementById('filter-user');
+    if (userSel.options.length <= 1) {
+      userSel.innerHTML = '<option value="">All users</option>' + data.users.map(u => `<option value="${u.user_id}">${escapeHtml(u.user_name)}</option>`).join('');
+      userSel.value = userId;
+    }
+    if (!data.entries.length) { wrap.innerHTML = `<div class="empty-state"><div class="t">No activity found</div><p>Try a different filter.</p></div>`; return; }
+    wrap.innerHTML = `
+      <table>
+        <thead><tr><th>When</th><th>User</th><th>Role</th><th>Action</th><th>Module</th><th>Details</th></tr></thead>
+        <tbody>
+          ${data.entries.map(e => `<tr>
+              <td class="psub" style="white-space:nowrap;">${new Date(e.created_at).toLocaleString('en-GB', { day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit' })}</td>
+              <td class="pname">${escapeHtml(e.user_name)}</td>
+              <td class="psub">${escapeHtml(e.user_role)}</td>
+              <td><span class="badge ${ACTION_BADGE[e.action] || 'neutral'}">${escapeHtml(e.action)}</span></td>
+              <td class="psub">${escapeHtml(e.entity_type)}</td>
+              <td style="max-width:400px;">${escapeHtml(e.description)}</td>
+            </tr>`).join('')}
+        </tbody>
+      </table>`;
+  } catch (e) {
+    wrap.innerHTML = `<div class="empty-state"><div class="t">Could not load activity log</div><p>${escapeHtml(e.message)}</p></div>`;
+  }
+}
+
+let debounceTimer;
+function debounceReload() { clearTimeout(debounceTimer); debounceTimer = setTimeout(loadLog, 300); }
+
+initShell().then(async (user) => {
+  if (!user) return;
+  if (user.role !== 'administrator') { document.getElementById('page-content').innerHTML = `<div class="empty-state"><div class="t">Administrators only</div></div>`; return; }
+  setPageTitle('Activity Log');
+  document.getElementById('page-content').innerHTML = pageContentHtml();
+
+  document.getElementById('search-input').addEventListener('input', debounceReload);
+  document.getElementById('filter-user').addEventListener('change', loadLog);
+  document.getElementById('export-xlsx-btn').addEventListener('click', () => exportAs('xlsx'));
+  document.getElementById('export-pdf-btn').addEventListener('click', () => exportAs('pdf'));
+  document.getElementById('filter-action').addEventListener('change', loadLog);
+  document.getElementById('filter-start').addEventListener('change', loadLog);
+  document.getElementById('filter-end').addEventListener('change', loadLog);
+
+  loadLog();
+});
+
+function exportAs(format) {
+  const params = { type: 'audit_log', format };
+  const start = document.getElementById('filter-start').value;
+  const end = document.getElementById('filter-end').value;
+  if (start) params.start = start;
+  if (end) params.end = end;
+  const qs = new URLSearchParams(params).toString();
+  window.open(`../../Backend/api/export.php?${qs}`, '_blank');
+}
+</script>
+</body>
+</html>
